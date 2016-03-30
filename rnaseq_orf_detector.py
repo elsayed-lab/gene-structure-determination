@@ -17,7 +17,6 @@ For example, using samtools, you can do:
 
     samtools merge combined.bam */accepted_hits.bam
 
-TODO: Discard any ORFs that consist of mostly N's (e.g. ch22 ~351,000)
 """
 import os
 import csv
@@ -52,10 +51,21 @@ class ORFDetector(object):
             if len(entry.features) > 0 and entry.features[0].type == 'chromosome':
                 self.annotations[entry.id] = entry
 
+        # TESTING 2016/03/30
+        # For now, just use one chromosome
+        self.sequence = {'TcChr1-S': self.sequence['TcChr1-S']}
+        self.annotations = {'TcChr1-S': self.annotations['TcChr1-S']}
+
         self.inter_cds_regions = self.get_inter_cds_regions()
         self.search_genome_for_orfs()
 
-        self.write_output_gff()
+        # generate genome coverage plot
+        vec = np.zeros(len(self.sequence['TcChr1-S']))
+        for loc in self.inter_cds_regions['TcChr1-S'][1]:
+            vec[loc[0]:loc[1]] = 1
+
+        self.plot_genome_image(vec, vec)
+        # self.write_output_gff()
 
     def _get_args(self):
         """Parses input and returns arguments"""
@@ -141,9 +151,6 @@ class ORFDetector(object):
 
             # add region after last gene
             inter_cds_regions[chrnum][strand].append((start, ch_end))
-
-            # if chrnum == 'TcChr22-S':
-                # raise Exception
 
         return inter_cds_regions
 
@@ -274,16 +281,19 @@ class ORFDetector(object):
         # clean up
         fp.close()
 
-    def plot_genome_image(self, genome):
+    def plot_genome_image(self, genes, orfs):
         """Creates an image plot for all chromosomes in a genome with known
         CDS's shown with one color, and regions of coverage shown in another"""
-        x = np.array(genome) 
+        x = np.array(genes) 
 
         # convert vector to a zero-filled square matrix
         mat_dim = int(np.ceil(np.sqrt(len(x))))
         fill = np.zeros(mat_dim**2 - len(x))
 
         mat = np.concatenate((x, fill)).reshape(mat_dim, mat_dim)
+
+        plt.matshow(mat)
+        plt.savefig('test.png')
 
         # flip to display from top-left corner
         # mat = t(apply(mat, 2, rev))

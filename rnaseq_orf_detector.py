@@ -16,17 +16,27 @@ file.
 For example, using samtools, you can do:
 
     samtools merge combined.bam */accepted_hits.bam
+    samtools sort combined.bam > combined_sorted.bam
+
+To generate a genome coverage maps:
+
+    bedtools genomecov -d -ibam combined_sorted.bam > combined_sorted.coverage 
 
 """
 import os
 import csv
 import sys
+import matplotlib
 import numpy as np
+import pandas
 from argparse import ArgumentParser
-from matplotlib import pyplot as plt
+from matplotlib.colors import ListedColormap
 from pybedtools import BedTool
 from Bio import Seq, SeqIO
 from BCBio import GFF
+
+matplotlib.use('Agg')
+from matplotlib import pyplot as plt
 
 class ORFDetector(object):
     """ORFDetector class definition"""
@@ -36,7 +46,7 @@ class ORFDetector(object):
         args = self._get_args()
 
         # Store parameters
-        self.bam = args['bam']
+        # self.bam = args['bam']
         self.fasta = args['fasta']
         self.gff = args['gff']
         self.output = args['output']
@@ -51,27 +61,53 @@ class ORFDetector(object):
             if len(entry.features) > 0 and entry.features[0].type == 'chromosome':
                 self.annotations[entry.id] = entry
 
-        # TESTING 2016/03/30
-        # For now, just use one chromosome
-        self.sequence = {'TcChr1-S': self.sequence['TcChr1-S']}
-        self.annotations = {'TcChr1-S': self.annotations['TcChr1-S']}
+        # Load RNA-Seq coverage map
+        self.coverage = {}
+
+        df = pandas.read_table(args['coverage'], 
+                               names=['chr_id', 'loc', 'coverage'])
+        for chr_id in self.sequence:
+            self.coverage[chr_id] = df[df.chr_id == chr_id].coverage
+
+        # Load RNA-Seq reads
+        # self.rnaseq_reads = BedTool(self.bam)
+        # Generate coverage maps for each chromosome
+        # rnaseq_vec = self.rnaseq_reads.genome_coverage(d=True)
 
         self.inter_cds_regions = self.get_inter_cds_regions()
         self.search_genome_for_orfs()
 
-        # generate genome coverage plot
-        vec = np.zeros(len(self.sequence['TcChr1-S']))
-        for loc in self.inter_cds_regions['TcChr1-S'][1]:
-            vec[loc[0]:loc[1]] = 1
-
-        self.plot_genome_image(vec, vec)
+        # generate genome coverage and novel ORF plots
+        self._plot_features()
         # self.write_output_gff()
+
+
+    def _create_cds_location_vector(self, chr_id):
+        """Create a single-nt resolution ternary vector indicating locations
+           covered by known CDSs on either strand"""
+        START_IDX = 0
+        END_IDX = 1
+
+        cds_vec = np.zeros(len(self.sequence[chr_id]))
+
+        # negative strand
+        for loc in self.inter_cds_regions[chr_id][-1]:
+            cds_vec[loc[START_IDX]:loc[END_IDX]] = 1 
+
+        # positive strand
+        for loc in self.inter_cds_regions[chr_id][1]:
+            cds_vec[loc[START_IDX]:loc[END_IDX]] = 2
+
+        return cds_vec
 
     def _get_args(self):
         """Parses input and returns arguments"""
         parser = ArgumentParser(description='Detect novel ORFs using RNA-Seq data.')
 
-        parser.add_argument('-b', '--bam', help='Input bam file', required=True)
+        # parser.add_argument('-b', '--bam', help='Input bam file', required=True)
+        parser.add_argument('-c', '--coverage', 
+                             help='Single nucleotide resolution genome coverage map',
+                             required=True)
         parser.add_argument('-f', '--fasta', help='Input FASTA file',
                             required=True)
         parser.add_argument('-g', '--gff', help='Input GFF file', required=True)
@@ -93,13 +129,13 @@ class ORFDetector(object):
         return args
 
     def get_inter_cds_regions(self):
-        """Returns a chromosome-indexed dict of inter-CDS regions for a 
+        """Returns a chromosome-indexed dict of inter-CDS regions for a
         specified GFF.
         """
         # Determine locations of inter-CDS regions for each chromosome
         inter_cds_regions = {}
 
-        for chrnum, chromosome in self.annotations.items():
+        for chr_id, chromosome in self.annotations.items():
             # get chromosome dimensions (the first feature represents the
             # chromosome itself)
             ch_end = int(chromosome.features[0].location.end)
@@ -116,7 +152,7 @@ class ORFDetector(object):
             # keep track of strand of polycistronic transcriptional unit
             strand = None
 
-            inter_cds_regions[chrnum] = {
+            inter_cds_regions[chr_id] = {
                 -1: [],
                 +1: []
             }
@@ -136,21 +172,21 @@ class ORFDetector(object):
                 # Add CDS to relevant list based on strand
                 if strand is None:
                     # Left-most gene
-                    inter_cds_regions[chrnum][gene.location.strand].append((start, end))
+                    inter_cds_regions[chr_id][gene.location.strand].append((start, end))
                 elif strand != gene.location.strand:
                     # Add ORFs in both directions at transcription switch sites (TSSs)
-                    inter_cds_regions[chrnum][+1].append((start, end))
-                    inter_cds_regions[chrnum][-1].append((start, end))
+                    inter_cds_regions[chr_id][+1].append((start, end))
+                    inter_cds_regions[chr_id][-1].append((start, end))
                 else:
                     # Within PTU; look for ORFs on same strand
-                    inter_cds_regions[chrnum][strand].append((start, end))
+                    inter_cds_regions[chr_id][strand].append((start, end))
 
                 # update start counter and strand
                 start = int(gene.location.end)
                 strand = gene.location.strand
 
             # add region after last gene
-            inter_cds_regions[chrnum][strand].append((start, ch_end))
+            inter_cds_regions[chr_id][strand].append((start, ch_end))
 
         return inter_cds_regions
 
@@ -159,14 +195,14 @@ class ORFDetector(object):
         self.orfs = []
 
         # Iterate through inter-CDS regions
-        for i, chrnum in enumerate(self.inter_cds_regions, 1):
-            print("Processing %s (%d/%d)" % (chrnum, i, len(self.sequence)))
+        for i, chr_id in enumerate(self.inter_cds_regions, 1):
+            print("Processing %s (%d/%d)" % (chr_id, i, len(self.sequence)))
             for strand in [-1, 1]:
-                for j, region in enumerate(self.inter_cds_regions[chrnum][strand]):
+                for j, region in enumerate(self.inter_cds_regions[chr_id][strand]):
                     # get sequence record for the range
-                    record = self.sequence[chrnum][region[0]:region[1]]
+                    record = self.sequence[chr_id][region[0]:region[1]]
 
-                    # Find ORFs in each of the six possible reading frames 
+                    # Find ORFs in each of the six possible reading frames
                     # that are at least the specified length
                     inter_cds_orfs = self.find_orfs(record.seq,
                                                     min_protein_length, strand)
@@ -180,8 +216,8 @@ class ORFDetector(object):
                         str_strand = orf[2]
 
                         self.orfs.append({
-                            'id': "%s.ORF.%d.%d" % (chrnum, j, k),
-                            'chr': chrnum,
+                            'id': "%s.ORF.%d.%d" % (chr_id, j, k),
+                            'chr': chr_id,
                             'start': start,
                             'stop': stop,
                             'strand': str_strand
@@ -243,7 +279,7 @@ class ORFDetector(object):
                 # increment start counter
                 aa_start = aa_end + 1
 
-                # Add ORF coordinates and continue 
+                # Add ORF coordinates and continue
                 answer.append((start, end, str_strand))
 
         # Sort results
@@ -252,7 +288,7 @@ class ORFDetector(object):
         return answer
 
     def write_output_gff(self):
-        # Iterate over inter-CDS regions and find ORFs of at least the specified 
+        # Iterate over inter-CDS regions and find ORFs of at least the specified
         # length in any of the six possible reading frames and output as GFF entries
         fp = open(self.output, 'w')
 
@@ -268,38 +304,90 @@ class ORFDetector(object):
         for orf in self.orfs:
             # Write entry
             gff_attrs = "ID=%s;Name=%s" % (orf['id'], orf['id'])
-            writer.writerow([orf['chr'], 
-                            "ElSayedLab", 
-                            'ORF', 
+            writer.writerow([orf['chr'],
+                            "ElSayedLab",
+                            'ORF',
                             orf['start'],
-                            orf['stop'], 
-                            '.', 
-                            orf['strand'], 
-                            '.', 
+                            orf['stop'],
+                            '.',
+                            orf['strand'],
+                            '.',
                             gff_attrs])
 
         # clean up
         fp.close()
 
-    def plot_genome_image(self, genes, orfs):
+    def _plot_features(self):
+        """Creates image plots of specified features (CDSs, RNA-Seq coverage,
+           or novel ORFs)"""
+        # create a separate plot for each chromosome
+        #
+        #  0 empty
+        #  1 CDS on negative strand
+        #  2 CDS on positive strand
+        #  3 RNA-Seq reads / novel ORF
+        #
+        for chr_id in self.sequence:
+            # create single-nt vectors indicating location for each feature
+            # of interest
+            cds_vec = self._create_cds_location_vector(chr_id)
+
+            # rna-seq coverage map
+            rnaseq_vec = self.coverage[chr_id]
+
+            # for now, convert to binary
+            rnaseq_vec[rnaseq_vec > 0] = 3
+
+            # output filepath
+            filename = '%s_orig.png' % chr_id
+            outfile = os.path.join('output', 'image', 'raw', filename) 
+
+            self.plot_genome_image(outfile, cds_vec, rnaseq_vec)
+
+    def plot_genome_image(self, outfile, cds_vec, rnaseq_vec):
         """Creates an image plot for all chromosomes in a genome with known
         CDS's shown with one color, and regions of coverage shown in another"""
-        x = np.array(genes) 
+        # convert input to numpy arrays
+        cds_vec = np.array(cds_vec)
+        rnaseq_vec = np.array(rnaseq_vec)
+
+        # combine cds and rna-seq arrays
+        rnaseq_vec[cds_vec != 0] = cds_vec[cds_vec != 0]
 
         # convert vector to a zero-filled square matrix
-        mat_dim = int(np.ceil(np.sqrt(len(x))))
-        fill = np.zeros(mat_dim**2 - len(x))
+        mat_dim = int(np.ceil(np.sqrt(len(rnaseq_vec))))
+        fill = np.zeros(mat_dim**2 - len(rnaseq_vec))
 
-        mat = np.concatenate((x, fill)).reshape(mat_dim, mat_dim)
+        mat = np.concatenate((rnaseq_vec, fill)).reshape(mat_dim, mat_dim)
 
-        plt.matshow(mat)
-        plt.savefig('test.png')
+        # flip so that 0,0 is top-left
+        mat = mat[::-1]
+
+        # colormap
+        colors = ['#000000', '#a2e803', '#0219e8', '#a302e8']
+        cmap = ListedColormap(colors, name='genome_cmap')
+
+        plt.figure()
+        plt.matshow(mat, cmap=cmap)
+
+        # create output directory and save
+        outdir = os.path.dirname(outfile)
+
+        if not os.path.exists(outdir):
+            os.makedirs(outdir)
+
+        fig = matplotlib.pyplot.gcf()
+        fig.set_size_inches(11.25, 11.25)
+        plt.savefig(outfile, dpi=96)
 
         # flip to display from top-left corner
         # mat = t(apply(mat, 2, rev))
         # image(z=mat, col=c("#333333", "red", "green", "blue", "yellow", "cyan",
                             # "magenta", "orange"))
 
+def _colormap():
+    """Custom colormap to use for genome plots"""
+    
 
 if __name__ == "__main__":
     orf_detector = ORFDetector()

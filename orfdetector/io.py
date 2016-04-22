@@ -3,6 +3,7 @@ I/O functions
 """
 import csv
 from argparse import ArgumentParser
+from BCBio import GFF
 
 def parse_args():
     """Parses input and returns arguments"""
@@ -12,13 +13,17 @@ def parse_args():
     parser.add_argument('-c', '--coverage', 
                             help='Single nucleotide resolution genome coverage map',
                             required=True)
-    parser.add_argument('-f', '--fasta', help='Input FASTA file',
+    parser.add_argument('-f', '--fasta', help='Input genome FASTA file',
                         required=True)
-    parser.add_argument('-g', '--gff', help='Input GFF file', required=True)
-    parser.add_argument('-l', '--min-protein-length', required=True, 
-                        type='int', default=30,
+    parser.add_argument('-g', '--gff', help='Input genome GFF file', required=True)
+    parser.add_argument('-s', '--sl-gff', help='Spliced leader site GFF')
+    parser.add_argument('-p', '--polya-gff', help='Polyadenylation site GFF')
+    parser.add_argument('-l', '--min-protein-length', type=int, default=30,
                         help=('Minimum size in amino acids allowed for '
                                 'novel ORFs. (default=30)'))
+    parser.add_argument('-t', '--plot-type', default='discrete',
+                        help=('Type of colormap to use when generating '
+                              'coverage plots. [discrete|continuous]'))
     parser.add_argument('output', help='Location to save output GFF to',
                         metavar='OUTFILE')
 
@@ -37,7 +42,7 @@ def parse_args():
     return args
 
 
-def write_output_gff(:
+def write_output_gff(output):
     # Iterate over inter-CDS regions and find ORFs of at least the specified
     # length in any of the six possible reading frames and output as GFF entries
     fp = open(output, 'w')
@@ -66,3 +71,27 @@ def write_output_gff(:
 
     # clean up
     fp.close()
+
+def load_gff(gff):
+    """Parses a single GFF file and returns a chromosome-indexed dict for
+       that file.
+
+    Arguments
+    ---------
+    gff: str
+        Filepath to GFF
+
+    Returns
+    -------
+    dict: A dictionary representation of the GFF entries, indexed by
+            chromosome ID
+    """
+    annotations = {}
+
+    fp = open(gff)
+    for entry in GFF.parse(fp):
+        if len(entry.features) > 0 and entry.features[0].type == 'chromosome':
+            annotations[entry.id] = entry
+    fp.close()
+
+    return annotations

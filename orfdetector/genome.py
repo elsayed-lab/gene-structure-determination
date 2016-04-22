@@ -1,6 +1,10 @@
 """
 Functions for retrieving features across a set of genome annotations.
 """
+import numpy as np
+from .orfs import find_orfs
+from .util import max_filter
+
 def get_cds_regions(annotations):
     """Returns a chromosome-indexed dict of CDS locations for a
     specified GFF.
@@ -119,7 +123,8 @@ def get_inter_cds_regions(annotations):
 
     return inter_cds_regions
 
-def find_primary_sites(annotations):
+def find_primary_sites(genome_sequence, genome_annotations, sl_sites,
+                       poly_sites, min_protein_length=30):
     """
     Simultaneously chooses optimal SL and Poly(A) sites for a set of two
     neighboring CDS's and detecting novel ORFs where appropriate.
@@ -154,9 +159,22 @@ def find_primary_sites(annotations):
     ORFs which can be chosen for a given SL/Poly(A) combination, the ORF
     which captures the most read density (usually the longest ORF), will be
     selected.
+
+    Arguments
+    ---------
+    genome_sequence: Seq
+        Genome sequence as a BioPython Seq instance
+    genome_annotations: dict
+        Genome annotations as a dictionary of chromosome entries
+    sl_sites: dict
+        Detected spliced-leader sites as a chromosome-indexed dict
+    polya_sites: dict
+        Detected polyadenylation sites as a chromosome-indexed dict
+    min_protein_length: int
+        Minimum length in amino acids to allow for novel ORFs
     """
     # Iterate over chromosomes
-    for chr_id, chromosome in annotations.items():
+    for chr_id, chromosome in genome_annotations.items():
         # get chromosome dimensions (the first feature represents the
         # chromosome itself)
         ch_end = int(chromosome.features[0].location.end)
@@ -184,11 +202,24 @@ def find_primary_sites(annotations):
             if end <= start:
                 next
 
-            # TODO: retrieve SL and Poly(A) sites in region
-            
-            # TODO: if no sites found, skip
+            # Get sequence record for the range
+            record = genome_sequence[chr_id][start:end]
 
-            # TODO: filter sites down to ~3 optimal SL's / Poly(A)'s
+            # Find ORFs in each of the six possible reading frames
+            # that are at least the specified length
+            inter_cds_orfs = find_orfs(record.seq, min_protein_length, strand)
+
+            # Retrieve SL and Poly(A) sites in region
+            inter_cds_sl_sites = get_features_by_range(sl_sites[chr_id], start, end)
+            inter_cds_polya_sites = get_features_by_range(polya_sites[chr_id], start, end)
+
+            # If no sites found, skip
+            if len(inter_cds_sl_sites) == 0 and len(inter_cds_polya_sites) == 0:
+                next
+
+            # Filter sites down to ~3 optimal SL's / Poly(A)'s
+            filtered_sl_sites = filter_features(inter_cds_sl_sites, start, end)
+            filtered_polya_sites = filter_features(inter_cds_polya_sites, start, end)
 
             # Add CDS to relevant list based on strand
             if strand is None:
@@ -208,4 +239,55 @@ def find_primary_sites(annotations):
             left_gene = right_gene
             start = int(left_gene.location.end)
             strand = left_gene.location.strand
+
+
+def get_features_by_range(annotations, start, stop):
+    """Returns all annotation features which fall within the specified range"""
+    features = []
+
+    for feature in annotations.features:
+        if feature.location.start > start and feature.location.end < end:
+            features.append(feature)
+
+    return features
+
+def features_to_1d_array(features, start, end):
+    """Takes a list of GFF features such as SL sites and creates a 1d array
+    representation of them with the value at each position in the array
+    equaling the score of the feature, or 0 if no features exist at that
+    location.
+
+    Arguments
+    ---------
+    features: list
+        A list of GFF features
+    start: int
+        Start coordinate for feature range
+    end: int
+        End coordinate for feature range
+
+    Returns
+    -------
+    np.array: A 1-dimensional array representation of the features.
+    """
+    arr = np.zeros(end - start)
+
+    for feature in features:
+        arr[feature.start - start] = int(feature.qualifiers.get('score')[0])
+
+    return arr
+
+def filter_features(features, start, end):
+    """Filters a set of features (e.g. SL sites) to remove any low-support or
+    closeby sites"""
+    # Convert features to a 1d array representation and filter
+    feature_arr = features_to_1d_array(features, start, end)
+    feature_arr = max_filter(feature_arr)
+
+    # Create a new list with just the features which pass the filter and return
+    indices = np.arange(len(feature_arr))[feature_arr != 0] + start
+
+    # TODO: rank by score and keep only the top N highest-scoring features?
+
+    return [x for x in features if x.location.start in indices]
 

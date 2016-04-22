@@ -3,7 +3,7 @@ Miscellaneous helper functions
 """
 import numpy as np
 
-def max_filter(arr, width=5):
+def max_filter(arr, width=10):
     """
     Moves a sliding window along a 1d array and sets all values except for the
     max in each window to 0.
@@ -11,7 +11,7 @@ def max_filter(arr, width=5):
     This effectively filters out everything except the local maxima along an
     array.
 
-    For exampke, given: 
+    For example, given: 
     
         0 0 0 1 2 5 1 0 0 0 0 0 4 15 1 0 0 0 0 0 0 84 9 0 0 0 0 0
 

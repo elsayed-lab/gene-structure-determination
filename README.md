@@ -4,8 +4,6 @@ RNA-Seq ORF detector
 Overview
 --------
 
-sequences.
-
 The script takes as input a reference genome and annotation, a bedtools
 coverage map for a collection of one or more mapped samples and, optionally, a
 set of detected 5' and 3'UTR boundaries.
@@ -79,10 +77,44 @@ Example call to `rnaseq_orf_detector.py`:
 
 ```sh
 ./rnaseq_orf_detector.py \
-    -c /path/to/combined.coverage.gz \
-    -g /path/to/TriTrypDB-27_TcruziCLBrenerEsmeraldo-like.gff \
-    -f /path/to/TriTrypDB-27_TcruziCLBrenerEsmeraldo-like_Genome.fasta \
+    -c $SCRATCH/tcruzi-hsapiens/tophat/tcruzi/tcruzi_all_samples_sorted.coverage.gz \
+    -g $REF/tcruzi_clbrener_esmeraldo-like/annotation/TriTrypDB-27_TcruziCLBrenerEsmeraldo-like.gff \
+    -f $REF/tcruzi_clbrener_esmeraldo-like/genome/TriTrypDB-27_TcruziCLBrenerEsmeraldo-like_Genome.fasta \
+    -s $RESEARCH/2015/110-utr-lengths/input/tcruzi_infecting_hsapiens_combined_sl_sorted.gff \
+    -p $RESEARCH/2015/110-utr-lengths/input/tcruzi_infecting_hsapiens_combined_polya_sorted.gff \
     output.gff
+```
+
+Full list of command-line parameters:
+
+```sh
+usage: rnaseq_orf_detector.py [-h] -c COVERAGE -f FASTA -g GFF [-s SL_GFF]
+                              [-p POLYA_GFF] -l MIN_PROTEIN_LENGTH
+                              [-t PLOT_TYPE]
+                              OUTFILE
+
+Detect novel ORFs using RNA-Seq data.
+
+positional arguments:
+  OUTFILE               Location to save output GFF to
+
+optional arguments:
+  -h, --help            show this help message and exit
+  -c COVERAGE, --coverage COVERAGE
+                        Single nucleotide resolution genome coverage map
+  -f FASTA, --fasta FASTA
+                        Input genome FASTA file
+  -g GFF, --gff GFF     Input genome GFF file
+  -s SL_GFF, --sl-gff SL_GFF
+                        Spliced leader site GFF
+  -p POLYA_GFF, --polya-gff POLYA_GFF
+                        Polyadenylation site GFF
+  -l MIN_PROTEIN_LENGTH, --min-protein-length MIN_PROTEIN_LENGTH
+                        Minimum size in amino acids allowed for novel ORFs.
+                        (default=30)
+  -t PLOT_TYPE, --plot-type PLOT_TYPE
+                        Type of colormap to use when generating coverage
+                        plots. [discrete|continuous]
 ```
 
 Diagnostic Images

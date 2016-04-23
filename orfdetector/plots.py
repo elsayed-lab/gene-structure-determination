@@ -25,7 +25,7 @@ def plot_genome_features(genome_sequence, cds_regions, rnaseq_coverage,
                                         len(genome_sequence[chr_id]))
 
         # rna-seq coverage map
-        rnaseq_vec = coverage[chr_id]
+        rnaseq_vec = rnaseq_coverage[chr_id]
 
         # threshold
         # TODO: make a command-line option; may not ultimately need to do
@@ -76,8 +76,12 @@ def plot_genome_image(outfile, cds_vec, rnaseq_vec, plot_type='discrete'):
     #  2 blue       CDS on positive strand
     #  3 magenta    RNA-Seq reads / novel ORF
     #
-    if _plot_type == 'discrete':
-        colors = ['#000000', '#a2e803', '#0219e8', '#a302e8']
+    if plot_type == 'discrete':
+        # default colors
+        # colors = ['#000000', '#a2e803', '#0219e8', '#a302e8']
+
+        # dream magnet (CL)
+        colors = ['#343838', '#00B4CC', '#005F6B', '#008C9E']
         cmap = ListedColormap(colors, name='genome_cmap')
     else:
         # for the continuous plot, use the hot colormap, but add an
@@ -98,8 +102,10 @@ def plot_genome_image(outfile, cds_vec, rnaseq_vec, plot_type='discrete'):
         os.makedirs(outdir)
 
     fig = matplotlib.pyplot.gcf()
-    fig.set_size_inches(20, 20)
-    plt.savefig(outfile, dpi=96)
+    # fig.set_size_inches(20, 20)
+    # plt.savefig(outfile, dpi=96)
+    fig.set_size_inches(60, 20)
+    plt.savefig(outfile, dpi=300)
     plt.clf()
 
 def create_feature_vector(features, length):

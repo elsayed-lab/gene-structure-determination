@@ -100,7 +100,7 @@ def get_inter_cds_regions(annotations):
             # Skip over snoRNAs, etc. that are nested inside of other genes
             # For example: TcCLB TcChr22-2 179,000:180,000
             if end <= start:
-                next
+                continue
 
             # Add CDS to relevant list based on strand
             if strand is None:
@@ -124,7 +124,7 @@ def get_inter_cds_regions(annotations):
     return inter_cds_regions
 
 def find_primary_sites(genome_sequence, genome_annotations, sl_sites,
-                       poly_sites, min_protein_length=30):
+                       polya_sites, min_protein_length=30):
     """
     Simultaneously chooses optimal SL and Poly(A) sites for a set of two
     neighboring CDS's and detecting novel ORFs where appropriate.
@@ -200,7 +200,7 @@ def find_primary_sites(genome_sequence, genome_annotations, sl_sites,
             # Skip over snoRNAs, etc. that are nested inside of other genes
             # For example: TcCLB TcChr22-2 179,000:180,000
             if end <= start:
-                next
+                continue
 
             # Get sequence record for the range
             record = genome_sequence[chr_id][start:end]
@@ -215,7 +215,7 @@ def find_primary_sites(genome_sequence, genome_annotations, sl_sites,
 
             # If no sites found, skip
             if len(inter_cds_sl_sites) == 0 and len(inter_cds_polya_sites) == 0:
-                next
+                continue
 
             # Filter sites down to ~3 optimal SL's / Poly(A)'s
             filtered_sl_sites = filter_features(inter_cds_sl_sites, start, end)
@@ -246,7 +246,7 @@ def get_features_by_range(annotations, start, stop):
     features = []
 
     for feature in annotations.features:
-        if feature.location.start > start and feature.location.end < end:
+        if feature.location.start > start and feature.location.end < stop:
             features.append(feature)
 
     return features
@@ -273,7 +273,7 @@ def features_to_1d_array(features, start, end):
     arr = np.zeros(end - start)
 
     for feature in features:
-        arr[feature.start - start] = int(feature.qualifiers.get('score')[0])
+        arr[feature.location.start - start] = int(feature.qualifiers.get('score')[0])
 
     return arr
 

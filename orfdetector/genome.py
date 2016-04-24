@@ -224,7 +224,14 @@ def find_primary_sites(genome_sequence, genome_annotations, sl_sites,
             # Add CDS to relevant list based on strand
             if strand is None:
                 # Left-most gene
-                # TODO: assign SL/Poly(A) to left-most gene
+                if right_gene.location.strand == 1:
+                    if len(inter_cds_sl_sites) == 0:
+                        continue
+                    sl = get_max_feature(filtered_sl_sites,
+                                         location_preference='right')
+                else:
+                    polya = get_max_feature(filtered_polya_sites,
+                                            location_preference='left')
                 pass
             elif strand != right_gene.location.strand:
                 # Transcription Switch Sites (TSSs)
@@ -250,6 +257,32 @@ def get_features_by_range(annotations, start, stop):
             features.append(feature)
 
     return features
+
+def get_max_feature(features, location_preference='right'):
+    """Takes a list of features and finds the one with the highest coverage
+    support. In the case of ties it will choose the site closest to the
+    direction specified."""
+    # get scores for each feature
+    scores = np.array([int(site.qualifiers['score'][0]) for site in features])
+
+    # maximum coverage score
+    max_score = max(scores)
+
+    # number of sites with the maximum coverage score
+    # num_matches = len([x for x in scores if x == max_score])
+    max_sites = np.array(features)[scores == max_score]
+
+    # If only one site found with maximum coverage, return it
+    if len(max_sites) == 1:
+        return max_sites[0]
+
+    # Otherwise find the site closest to the edge specified
+    positions = np.array([site.location.start for site in features])
+
+    if location_preference == 'left':
+        return np.array(features)[positions == min(positions)][0]
+    else:
+        return np.array(features)[positions == max(positions)][0]
 
 def features_to_1d_array(features, start, end):
     """Takes a list of GFF features such as SL sites and creates a 1d array
@@ -277,17 +310,37 @@ def features_to_1d_array(features, start, end):
 
     return arr
 
-def filter_features(features, start, end):
+def filter_features(features, start, end, window_size=10, max_features=3):
     """Filters a set of features (e.g. SL sites) to remove any low-support or
-    closeby sites"""
+    closeby sites.
+    
+    Parameters
+    ----------
+    features: list
+        A list of SeqFeature instances representing the locations of putative
+        SL accepted sites and polyadenylation sites in the genome.
+    start: int
+        Start coordinate along the chromosome for the region currently scanning
+    end: int
+        End coordinate along the chromosome for the region currently scanning
+    window_size: int
+        Sliding window size to use when smoothing feature data
+    max_features: int
+        Maximum number of features to return - will find at most this number of
+        features, based on coverage support.
+    """
     # Convert features to a 1d array representation and filter
     feature_arr = features_to_1d_array(features, start, end)
-    feature_arr = max_filter(feature_arr)
 
-    # Create a new list with just the features which pass the filter and return
+    # Smooth out everything except for local peaks
+    feature_arr = max_filter(feature_arr, width=window_size)
+
+    # Rank by score and keep only the top N highest-scoring features
+    rank_cutoff = len(feature_arr) - max_features
+    feature_arr[feature_arr.argsort().argsort() < rank_cutoff] = 0
+
+    # Get the indices of coverage peaks
     indices = np.arange(len(feature_arr))[feature_arr != 0] + start
-
-    # TODO: rank by score and keep only the top N highest-scoring features?
 
     return [x for x in features if x.location.start in indices]
 

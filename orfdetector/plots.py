@@ -102,10 +102,10 @@ def plot_genome_image(outfile, cds_vec, rnaseq_vec, plot_type='discrete'):
         os.makedirs(outdir)
 
     fig = matplotlib.pyplot.gcf()
-    # fig.set_size_inches(20, 20)
-    # plt.savefig(outfile, dpi=96)
-    fig.set_size_inches(60, 20)
-    plt.savefig(outfile, dpi=300)
+    fig.set_size_inches(40, 20)
+    plt.savefig(outfile, dpi=96)
+    # fig.set_size_inches(60, 20)
+    # plt.savefig(outfile, dpi=300)
     plt.clf()
 
 def create_feature_vector(features, length):

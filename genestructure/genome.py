@@ -230,9 +230,11 @@ def find_primary_sites(genome_sequence, genome_annotations, sl_sites,
                         continue
                     sl = get_max_feature(filtered_sl_sites,
                                          location_preference='right')
+                    row = build_gff_utr_entry(sl, right_gene, chr_id)
                 else:
                     polya = get_max_feature(filtered_polya_sites,
                                             location_preference='left')
+                    row = build_gff_utr_entry(polya, right_gene, chr_id)
                 pass
             elif strand != right_gene.location.strand:
                 # Transcription Switch Sites (TSSs)
@@ -248,6 +250,63 @@ def find_primary_sites(genome_sequence, genome_annotations, sl_sites,
             start = int(left_gene.location.end)
             strand = left_gene.location.strand
 
+def build_gff_utr_entry(feature, gene, chr_id):
+    """Takes a single SeqFeature corresponding to either a primary SL or
+    polyadenylation site, as well as its associated gene, and return a GFF 5'
+    or 3'UTR entry for the pair.
+
+    Parameters
+    ----------
+    feature: SeqFeature
+        A single-coordinate SeqFeature representing an SL or Poly(A) site.
+    gene: SeqFeature
+        Gene for which the feature belongs to.
+    chr_id: str
+        Chromosome identifier.
+        
+    Return
+    ------
+    str: A GFF entry of type five_prime_UTR or three_prime_UTR.
+    """
+    # 3'UTR
+    if feature.type == 'polyA_site':
+        entry_type = 'three_prime_UTR'
+
+        # Positive strand
+        if gene.strand == 1:
+            start = gene.location.end + 1
+            end = feature.location.start
+        else:
+            # Negative strand
+            start = feature.location.end + 1
+            end = gene.location.start
+    else:
+        # 5'UTR
+        entry_type = 'five_prime_UTR'
+
+        # Positive strand
+        if gene.strand == 1:
+            start = feature.location.end + 1
+            end = gene.location.start
+        else:
+            # Negative strand
+            start = gene.location.end + 1
+            end = feature.location.start
+
+    # Description
+    # ID=TcCLB.511911.98_5utr;Name=TcCLB.511911.98;description=hypothetical+protein,+conserved
+    short_type = '5utr' if entry_type == 'five_prime_UTR' else '3utr'
+
+    desc = 'ID=%s_%s;Name=%s;description=%s' % (gene.id, short_type, gene.id,
+                                                gene.qualifiers['description'][0])
+
+    # GFF parts
+    strand = '+' if gene.strand == 1 else '-'
+    score = feature.qualifiers['score'][0]
+
+    parts = [chr_id, 'El-Sayed', entry_type, start, end, score, strand, '.', desc]
+
+    return "\t".join(parts) 
 
 def get_features_by_range(annotations, start, stop):
     """Returns all annotation features which fall within the specified range"""

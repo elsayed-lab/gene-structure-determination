@@ -7,7 +7,8 @@ from BCBio import GFF
 
 def parse_args():
     """Parses input and returns arguments"""
-    parser = ArgumentParser(description='Detect novel ORFs using RNA-Seq data.')
+    parser = ArgumentParser(description=('Determine gene structure and detect '
+                                         'novel ORF using RNA-Seq data.'))
 
     # parser.add_argument('-b', '--bam', help='Input bam file', required=True)
     parser.add_argument('-c', '--coverage', 

@@ -1,16 +1,19 @@
-RNA-Seq ORF detector
-====================
+RNA-Seq UTR boundary and novel ORF detector
+===========================================
 
 Overview
 --------
 
 The script takes as input a reference genome and annotation, a bedtools
 coverage map for a collection of one or more mapped samples and, optionally, a
-set of detected 5' and 3'UTR boundaries.
+set of spliced leader (SL) acceptor sites and polyadenylation sites, and
+attempts to determine the most likely primary UTR boundaries for each gene for
+which evidence exists, and also detects novel ORFs with transcription and other
+types of evidence.
 
-This script was designed primarily for use with trypanasome RNA-Seq data, for
-which most genes contain only a single exon, and genes exists in the genome in
-long tracts on the same strand.
+It is designed primarily for use with trypanasome RNA-Seq data, for which most
+genes contain only a single exon, and genes exists in the genome in long tracts
+on the same strand.
 
 Requirements
 ------------
@@ -20,7 +23,6 @@ Requirements
 - [Matplotlib](http://matplotlib.org/)
 - [bcbio-gff](https://github.com/chapmanb/bcbb/tree/master/gff)
 - [pybedtools](https://pythonhosted.org/pybedtools/)
-
 
 Running
 -------

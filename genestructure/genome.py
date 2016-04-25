@@ -150,7 +150,8 @@ def find_primary_sites(genome_sequence, genome_annotations, sl_sites,
 
         10E6 * # Assigned features +
         10E3 * sum(reads mapped to each feature) +
-        10E1 * sum(read density spanning the ORF)
+        10E1 * sum(read density spanning the ORF) +
+        1    / sum(distance from each site to associated feature)
 
     This optimization criterion will favor the selection of configurations
     where the maximal number of CDS/ORFs are assigned SL and Poly(A) sites,

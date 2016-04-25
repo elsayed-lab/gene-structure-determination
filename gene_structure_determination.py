@@ -1,12 +1,13 @@
 #!/usr/bin/env python
 #-*- coding: utf-8 -*-
 """
-Novel ORF detection using RNA-Seq data
+Gene structure and novel ORF detection using RNA-Seq data
 Keith Hughitt (khughitt@umd.edu)
 2016/03/29
 
-The goal of this tool is to provide a way to search for unannotated ORFs which
-fall between existing annotated ORFs with RNA-Seq read support.
+The goal of this script is to attempt to use RNA-Seq information from RNA-Seq
+reads to define the UTR boundaries for genes, and to detect putative novel ORFs
+with transcriptional and other types of evidence.
 
 Currently, bedtools does not support multiple input BAM files when using the
 genomecov function to compute read coverage across the genome. As such, if you
@@ -27,9 +28,9 @@ import os
 import pandas
 from Bio import Seq, SeqIO
 from BCBio import GFF
-from orfdetector.genome import get_cds_regions, get_inter_cds_regions, find_primary_sites
-from orfdetector.plots import plot_genome_features
-from orfdetector.io import load_gff, parse_args, write_output_gff
+from genestructure.genome import get_cds_regions, get_inter_cds_regions, find_primary_sites
+from genestructure.plots import plot_genome_features
+from genestructure.io import load_gff, parse_args, write_output_gff
 
 def main():
     """Main"""

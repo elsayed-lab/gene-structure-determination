@@ -15,6 +15,27 @@ It is designed primarily for use with trypanasome RNA-Seq data, for which most
 genes contain only a single exon, and genes exists in the genome in long tracts
 on the same strand.
 
+![Motivating example](extra/example.png)
+
+The above screenshot shows the basic goal of this script. Given a reference
+genome with known CDS's, a set of RNA-Seq reads, and detected SL and Poly(A)
+sites, can we choose the most likely primary SL/Poly(A) sites (and thus 5' and
+3'UTR boundaries), for as many genes as possible?
+
+In the above IGV screenshot, detected SL sites are shown in blue (with the
+height indicating the number of RNA-Seq reads supporting that site), and the
+polyadenylation sites are shown in red. While there appears to be an extended
+block of mapped RNA-Seq reads between the two existing annotated CDS's, and
+also potential SL and Poly(A) sites to go along with the inter-CDS coverage
+region, there is currently no annotation for that region.
+
+This script attempts to simultaneously detect novel ORFs (which may correspond
+to unnanotated genes, pseudogenes, or other types of features), and assign
+primary UTR boundaries to the both the novel ORFs and existing gene
+annotations. This way we can arrive at a better understanding of the parasite
+gene structure, and obtain more accurate distributions for 5' and 3'UTR
+lengths, as well as intergenic lengths.
+
 Requirements
 ------------
 

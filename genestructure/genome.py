@@ -176,7 +176,7 @@ def find_primary_sites(genome_sequence, genome_annotations, sl_sites,
     """
     # Iterate over chromosomes
     for chr_id, chromosome in genome_annotations.items():
-        # get chromosome dimensions (the first feature represents the
+        # get chromosome length (the first feature represents the
         # chromosome itself)
         ch_end = int(chromosome.features[0].location.end)
 
@@ -222,6 +222,13 @@ def find_primary_sites(genome_sequence, genome_annotations, sl_sites,
             filtered_sl_sites = filter_features(inter_cds_sl_sites, start, end)
             filtered_polya_sites = filter_features(inter_cds_polya_sites, start, end)
 
+            # TODO: deal with cases where only sl site or polya sites were
+            # found, but not found.
+            if len(filtered_sl_sites) == 0:
+                pass
+            elif len(filtered_polya_sites) == 0:
+                pass
+
             # Add CDS to relevant list based on strand
             if strand is None:
                 # Left-most gene
@@ -241,14 +248,53 @@ def find_primary_sites(genome_sequence, genome_annotations, sl_sites,
                 # TODO: assign features at TSS
                 pass
             else:
-                # Within PTU; look for ORFs on same strand
-                # TODO: assign within PTU features 
-                pass
+                # Assign within PTU features 
+                # In this case, we will evaluate each possible combination of
+                # SL/Poly(A) sites to choose the configuration which is most
+                # appropriate for the neighboring pair of genes.
+                max_score = 0
+                sl = None
+                polya = None
+
+                # Iterate over all combinations of filtered SL/Poly(A) sites
+                for sl_site in filtered_sl_sites:
+                    for polya_site in filtered_polya_sites:
+                        #  If SL/Poly(A) are in wrong in wrong orientation,
+                        #  which would lead to negative-sized intergenic
+                        #  regions, skip.
+                        if ((strand ==  1 and polya_site.location.start >= sl_site.location.start) or 
+                            (strand == -1 and polya_site.location.start <= sl_site.location.start)):
+                            continue
+
+                        # compute score for features
+                        score = compute_feature_pair_score(sl_site, polya_site, strand)
+
+                        # keep feature pair if highest scoring encountered
+                        if score > max_score:
+                            max_score = score
+                            sl = sl_site
+                            polya = polya_site
+
+                # Create GFF entries
+                if strand == 1:
+                    sl_gff_entry = build_gff_utr_entry(sl, right_gene, chr_id)
+                    polya_gff_entry = build_gff_utr_entry(polya, left_gene, chr_id)
+                else:
+                    sl_gff_entry = build_gff_utr_entry(sl, left_gene, chr_id)
+                    polya_gff_entry = build_gff_utr_entry(polya, right_gene, chr_id)
 
             # update gene, start counter and strand
             left_gene = right_gene
             start = int(left_gene.location.end)
             strand = left_gene.location.strand
+
+def compute_feature_pair_score(sl, polya, strand, orf=None):
+    """Computes a score for a specified pair of SL and Poly(A) sites.
+
+    The score is computed as:
+        sum(reads mapped to each feature)
+    """
+    return int(sl.qualifiers['score'][0]) + int(polya.qualifiers['score'][0])
 
 def build_gff_utr_entry(feature, gene, chr_id):
     """Takes a single SeqFeature corresponding to either a primary SL or
@@ -304,7 +350,7 @@ def build_gff_utr_entry(feature, gene, chr_id):
     strand = '+' if gene.strand == 1 else '-'
     score = feature.qualifiers['score'][0]
 
-    parts = [chr_id, 'El-Sayed', entry_type, start, end, score, strand, '.', desc]
+    parts = [chr_id, 'El-Sayed', entry_type, str(start), str(end), score, strand, '.', desc]
 
     return "\t".join(parts) 
 
@@ -370,7 +416,8 @@ def features_to_1d_array(features, start, end):
 
     return arr
 
-def filter_features(features, start, end, window_size=10, max_features=3):
+def filter_features(features, start, end, window_size=10, max_features=3,
+                    min_ratio_alt_to_prim=0.01):
     """Filters a set of features (e.g. SL sites) to remove any low-support or
     closeby sites.
     
@@ -388,6 +435,12 @@ def filter_features(features, start, end, window_size=10, max_features=3):
     max_features: int
         Maximum number of features to return - will find at most this number of
         features, based on coverage support.
+    min_ratio_alt_to_prim: float
+        The minimum ratio of alternative site to primary site reads required
+        for an alternative site to be considered valid. For example, if the
+        primary site was found to have 1000 reads mapped to it, and the ratio
+        is 0.01, then any secondary sites must have at least 0.1 * 1000 = 10
+        reads to avoid being filtered out.
     """
     # Convert features to a 1d array representation and filter
     feature_arr = features_to_1d_array(features, start, end)
@@ -398,6 +451,11 @@ def filter_features(features, start, end, window_size=10, max_features=3):
     # Rank by score and keep only the top N highest-scoring features
     rank_cutoff = len(feature_arr) - max_features
     feature_arr[feature_arr.argsort().argsort() < rank_cutoff] = 0
+
+    # Drop any non-primary sites with much lower read coverage compared
+    # to the primary site
+    min_num_reads = max(feature_arr) * min_ratio_alt_to_prim
+    feature_arr[feature_arr < min_num_reads] = 0
 
     # Get the indices of coverage peaks
     indices = np.arange(len(feature_arr))[feature_arr != 0] + start

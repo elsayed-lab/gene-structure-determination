@@ -26,7 +26,9 @@ To generate a genome coverage maps:
 """
 import os
 import pandas
-from Bio import Seq, SeqIO
+import warnings 
+from Bio import Seq, SeqIO, BiopythonWarning
+from Bio import  
 from BCBio import GFF
 from genestructure.genome import get_cds_regions, get_inter_cds_regions, find_primary_sites
 from genestructure.plots import plot_genome_features
@@ -34,8 +36,13 @@ from genestructure.io import load_gff, parse_args, write_output_gff
 
 def main():
     """Main"""
+    # Ignore Biopython warnings
+    warnings.simplefilter('ignore', BiopythonWarning) 
+
     # Get command-line arguments
     args = parse_args()
+
+    print(args)
 
     # Load genome sequence
     genome_sequence = {x.id:x for x in SeqIO.parse(args['fasta'], 'fasta')}
@@ -47,6 +54,7 @@ def main():
     rnaseq_coverage = {}
 
     df = pandas.read_table(args['coverage'], names=['chr_id', 'loc', 'coverage'])
+
     for chr_id in genome_sequence:
         rnaseq_coverage[chr_id] = df[df.chr_id == chr_id].coverage
 

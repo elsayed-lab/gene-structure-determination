@@ -58,7 +58,8 @@ def search_genome_for_orfs(genome_sequence, inter_cds_regions, min_protein_lengt
 def find_orfs(seq, min_protein_length, strand=1, trans_table=1,
               ignore_ambiguous_orfs=True):
     """
-    Finds ORFs of a specified minimum protein length in a SeqRecord.
+    Finds ORFs of a specified minimum protein length and on a specific
+    strand in a SeqRecord.
 
     Based on: http://biopython.org/DIST/docs/tutorial/Tutorial.html#sec360
     """

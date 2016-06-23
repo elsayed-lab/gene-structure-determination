@@ -124,7 +124,7 @@ def get_inter_cds_regions(annotations):
     return inter_cds_regions
 
 def find_primary_sites(genome_sequence, genome_annotations, sl_sites,
-                       polya_sites, min_protein_length=30):
+                       polya_sites, rnaseq_coverage, min_protein_length=30):
     """
     Simultaneously chooses optimal SL and Poly(A) sites for a set of two
     neighboring CDS's and detecting novel ORFs where appropriate.
@@ -148,18 +148,20 @@ def find_primary_sites(genome_sequence, genome_annotations, sl_sites,
 
     For each possible configuration, we will compute a score defined by:
 
-        10E6 * # Assigned features +
-        10E3 * sum(reads mapped to each feature) +
-        10E1 * sum(read density spanning the ORF) +
-        1    / sum(distance from each site to associated feature)
+        10E6  * # Assigned features +
+        10E0  * sum(reads mapped to each feature) +
+        10E-6 * sum(read density spanning the ORF) +
+       -10E6  * if ORF included
 
     This optimization criterion will favor the selection of configurations
     where the maximal number of CDS/ORFs are assigned SL and Poly(A) sites,
     and will attempt to choose the sites with the most support (largest
-    number of reads supporting those sites). Finally, if there are multiple
-    ORFs which can be chosen for a given SL/Poly(A) combination, the ORF
-    which captures the most read density (usually the longest ORF), will be
-    selected.
+    number of reads supporting those sites). If there are multiple ORFs which
+    can be chosen for a given SL/Poly(A) combination, the ORF which captures
+    the most read density (usually the longest ORF), will be selected.
+    Finally, if two configurations score equally well, but one uses only the
+    existing annotations, and another assigns features to a novel ORF, the
+    configuration using only the existing annotations will be favored.
 
     Arguments
     ---------
@@ -171,11 +173,22 @@ def find_primary_sites(genome_sequence, genome_annotations, sl_sites,
         Detected spliced-leader sites as a chromosome-indexed dict
     polya_sites: dict
         Detected polyadenylation sites as a chromosome-indexed dict
+    rnaseq_coverage: dict
+        Dictionary of 1d chromosome RNA-Seq read coverage vectors
     min_protein_length: int
         Minimum length in amino acids to allow for novel ORFs
     """
+    # GFF entries
+    gff_entries = []
+
+    # counters
+    total_counter    = 0
+    assigned_counter = 0
+
     # Iterate over chromosomes
     for chr_id, chromosome in genome_annotations.items():
+        print("=======" + chr_id + "=======")
+
         # get chromosome length (the first feature represents the
         # chromosome itself)
         ch_end = int(chromosome.features[0].location.end)
@@ -191,6 +204,7 @@ def find_primary_sites(genome_sequence, genome_annotations, sl_sites,
 
         # keep track of strand of polycistronic transcriptional unit
         strand = None
+        left_gene = None
 
         # iterate over genes
         # for gene in genes:
@@ -198,9 +212,20 @@ def find_primary_sites(genome_sequence, genome_annotations, sl_sites,
             # Determine location for the region up to start of the gene
             end = int(right_gene.location.start)
 
+            total_counter = total_counter + 1
+
+            # Gene ids (used for logging)
+            left_gene_id = left_gene.id if left_gene != None else 'None'
+            right_gene_id = right_gene.id
+            gene_ids = "%s - %s" % (left_gene_id, right_gene_id)
+
             # Skip over snoRNAs, etc. that are nested inside of other genes
             # For example: TcCLB TcChr22-2 179,000:180,000
             if end <= start:
+                print(" [SKIPPING] %s: Nested genes" % gene_ids)
+                left_gene = right_gene
+                start = int(left_gene.location.end)
+                strand = left_gene.location.strand
                 continue
 
             # Get sequence record for the range
@@ -216,6 +241,10 @@ def find_primary_sites(genome_sequence, genome_annotations, sl_sites,
 
             # If no sites found, skip
             if len(inter_cds_sl_sites) == 0 and len(inter_cds_polya_sites) == 0:
+                print(" [SKIPPING] %s: No features detected" % gene_ids)
+                left_gene = right_gene
+                start = int(left_gene.location.end)
+                strand = left_gene.location.strand
                 continue
 
             # Filter sites down to ~3 optimal SL's / Poly(A)'s
@@ -225,76 +254,203 @@ def find_primary_sites(genome_sequence, genome_annotations, sl_sites,
             # TODO: deal with cases where only sl site or polya sites were
             # found, but not found.
             if len(filtered_sl_sites) == 0:
-                pass
+                print(" [SKIPPING] %s: No SL sites detected" % gene_ids)
+                left_gene = right_gene
+                start = int(left_gene.location.end)
+                strand = left_gene.location.strand
+                continue
             elif len(filtered_polya_sites) == 0:
-                pass
+                print(" [SKIPPING] %s: No Poly(A) sites detected" % gene_ids)
+                left_gene = right_gene
+                start = int(left_gene.location.end)
+                strand = left_gene.location.strand
+                continue
 
             # Add CDS to relevant list based on strand
             if strand is None:
-                # Left-most gene
+                # Left-most gene; not looking for undetected ORFs in this
+                # region at the moment.
                 if right_gene.location.strand == 1:
                     if len(inter_cds_sl_sites) == 0:
+                        print(" [SKIPPING] %s: No SL sites detected" % gene_ids)
+                        left_gene = right_gene
+                        start = int(left_gene.location.end)
+                        strand = left_gene.location.strand
                         continue
                     sl = get_max_feature(filtered_sl_sites,
                                          location_preference='right')
-                    row = build_gff_utr_entry(sl, right_gene, chr_id)
+                    entries = [build_gff_utr_entry(sl, right_gene, chr_id)]
+                    gff_entries = gff_entries + entries
                 else:
                     polya = get_max_feature(filtered_polya_sites,
                                             location_preference='left')
-                    row = build_gff_utr_entry(polya, right_gene, chr_id)
-                pass
+                    entries = [build_gff_utr_entry(polya, right_gene, chr_id)]
+                    gff_entries = gff_entries + entries
+                print(" [ASSIGNED] %s: Annotated features only" % gene_ids)
             elif strand != right_gene.location.strand:
                 # Transcription Switch Sites (TSSs)
                 # TODO: assign features at TSS
-                pass
+                print(" [SKIPPING] %s: Inter-PTU region" % gene_ids)
+                left_gene = right_gene
+                start = int(left_gene.location.end)
+                strand = left_gene.location.strand
+                continue
             else:
                 # Assign within PTU features 
                 # In this case, we will evaluate each possible combination of
                 # SL/Poly(A) sites to choose the configuration which is most
                 # appropriate for the neighboring pair of genes.
-                max_score = 0
-                sl = None
-                polya = None
-
-                # Iterate over all combinations of filtered SL/Poly(A) sites
-                for sl_site in filtered_sl_sites:
-                    for polya_site in filtered_polya_sites:
-                        #  If SL/Poly(A) are in wrong in wrong orientation,
-                        #  which would lead to negative-sized intergenic
-                        #  regions, skip.
-                        if ((strand ==  1 and polya_site.location.start >= sl_site.location.start) or 
-                            (strand == -1 and polya_site.location.start <= sl_site.location.start)):
-                            continue
-
-                        # compute score for features
-                        score = compute_feature_pair_score(sl_site, polya_site, strand)
-
-                        # keep feature pair if highest scoring encountered
-                        if score > max_score:
-                            max_score = score
-                            sl = sl_site
-                            polya = polya_site
-
-                # Create GFF entries
-                if strand == 1:
-                    sl_gff_entry = build_gff_utr_entry(sl, right_gene, chr_id)
-                    polya_gff_entry = build_gff_utr_entry(polya, left_gene, chr_id)
-                else:
-                    sl_gff_entry = build_gff_utr_entry(sl, left_gene, chr_id)
-                    polya_gff_entry = build_gff_utr_entry(polya, right_gene, chr_id)
+                entries = assign_inter_ptu_sites(filtered_sl_sites, 
+                                                 filtered_polya_sites, 
+                                                 inter_cds_orfs, 
+                                                 rnaseq_coverage[chr_id],
+                                                 start, end, strand, gene_ids)
+                gff_entries = gff_entries + entries
 
             # update gene, start counter and strand
             left_gene = right_gene
             start = int(left_gene.location.end)
             strand = left_gene.location.strand
 
-def compute_feature_pair_score(sl, polya, strand, orf=None):
-    """Computes a score for a specified pair of SL and Poly(A) sites.
+            if len(entries) > 0:
+                assigned_counter = assigned_counter + 1
 
-    The score is computed as:
-        sum(reads mapped to each feature)
+    print("Total inter-CDS regions scanned: %d (%d assigned)" % (total_counter,
+                                                                 assigned_counter))
+
+    return gff_entries
+
+def assign_inter_ptu_sites(sl_sites, polya_sites, orfs, coverage,
+                           region_start, region_end, strand, gene_ids):
     """
-    return int(sl.qualifiers['score'][0]) + int(polya.qualifiers['score'][0])
+    Attempts to choose the most like primary SL and Poly(A) sites for a pair of
+    adjacenct genes on the same polycistronic transcriptional unit (PTU),
+    allowing for the possibility of novel ORFs.
+
+    For a specific set of SL sites, Poly(A) sites, and ORFs in a inter-CDS
+    region, each possible assignment of features is considered, including a
+    configuration with no novel ORFs.
+
+    The highest scoring combination of assignments is then used to assign
+    primary sites to each feature.
+    """
+    max_score = 0
+    sl = None
+    polya = None
+
+    # Iterate over any novel ORFs
+    for orf in orfs:
+        # ORF boundaries relevant to chromosome start
+        orf_start = region_start + orf[0]
+        orf_end   = region_start + orf[1]
+
+        # compute density of reads covering ORF
+        orf_coverage = sum(coverage[orf_start:orf_end])
+        
+        # compute score for region to the left of ORF
+        lhs_sl_sites    = [sl for sl in sl_sites if sl.location.start < orf_start]
+        lhs_polya_sites = [polya for polya in polya_sites if polya.location.start < orf_start]
+        lhs = select_optimal_features(lhs_sl_sites, lhs_polya_sites, strand)
+
+        # compute score for region to the right of ORF
+        rhs_sl_sites    = [sl for sl in sl_sites if sl.location.start > orf_end]
+        rhs_polya_sites = [polya for polya in polya_sites if polya.location.start > orf_end]
+        rhs = select_optimal_features(rhs_sl_sites, rhs_polya_sites, strand)
+
+        # total number of features assigned for configuration
+        total_assigned = bool(lhs['sl']) + bool(lhs['polya']) + bool(rhs['sl']) + bool(rhs['polya'])
+
+        # compute score
+        # one substracted from total_assigned to penalize inclusion of ORFs
+        score = (10E6  * (total_assigned - 1) +
+                 10E0  * lhs['read_support'] + rhs['read_support'] +
+                 10E-6 * orf_coverage)
+
+        if  score > max_score:
+            max_score = score
+
+            # for now, just keep track of feature assignments for annotated
+            # genes and don't worry about the ORFs themselves...
+            if strand == 1:
+                sl = rhs['sl']
+                polya = lhs['polya']
+            else:
+                sl = lhs['sl']
+                polya = rhs['polya']
+
+    # Also compute the score for the best arrangement without any novel ORFs
+    no_orfs = select_optimal_features(sl_sites, polya_sites, strand)
+
+    # total number of features assigned for configuration
+    total_assigned = bool(no_orfs['sl']) + bool(no_orfs['polya'])
+
+    # compute score
+    score = (10E6  * total_assigned +
+             10E0  * no_orfs['read_support'])
+
+    if  score > max_score:
+        print(" [ASSIGNED] %s: Annotated features only" % gene_ids) 
+        max_score = score
+
+        # for now, just keep track of feature assignments for annotated
+        # genes and don't worry about the ORFs themselves...
+        sl = no_orfs['sl']
+        polya = no_orfs['polya']
+    else:
+        if max_score > 0:
+            print(" [ASSIGNED] %s: Putative novel ORF detected in range: %d - %d" % (gene_ids, 
+                                                                                     region_start,
+                                                                                     region_end)) 
+    # If no valid configurations were encountered (e.g. SL/Poly(A) sites
+    # entirely in wrong orientation) then don't add any GFF entries
+    if max_score == 0:
+        return []
+
+    # Create GFF entries
+    if strand == 1:
+        sl_gff_entry = build_gff_utr_entry(sl, right_gene, chr_id)
+        polya_gff_entry = build_gff_utr_entry(polya, left_gene, chr_id)
+    else:
+        sl_gff_entry = build_gff_utr_entry(sl, left_gene, chr_id)
+        polya_gff_entry = build_gff_utr_entry(polya, right_gene, chr_id)
+
+    # Return GFF entries for each feature
+    return [sl_gff_entry, polya_gff_entry]
+
+def select_optimal_features(sl_sites, polya_sites, strand):
+    """
+    Finds the optimal SL/Poly(A) primary site assignments for a given region,
+    without considering the effect of novel ORFs.
+    """
+    max_read_support = 0
+    sl = None
+    polya = None
+
+    # Iterate over all combinations of filtered SL/Poly(A) sites
+    # TODO: handle case where only one type of feature exists...
+    for sl_site in sl_sites:
+        for polya_site in polya_sites:
+            # TODO: Decide how to assign features when this is the only
+            # configuration.
+
+            #  If SL/Poly(A) are in wrong in wrong orientation,
+            #  which would lead to negative-sized intergenic
+            #  regions, skip.
+            if ((strand ==  1 and polya_site.location.start >= sl_site.location.start) or 
+                (strand == -1 and polya_site.location.start <= sl_site.location.start)):
+                continue
+
+            # compute read support for features
+            read_support = (int(sl_site.qualifiers['score'][0]) + 
+                            int(polya_site.qualifiers['score'][0]))
+
+            # keep feature pair if highest scoring encountered
+            if read_support > max_read_support:
+                max_read_support = read_support
+                sl = sl_site
+                polya = polya_site
+
+    return {'sl': sl, 'polya': polya, 'read_support': max_read_support}
 
 def build_gff_utr_entry(feature, gene, chr_id):
     """Takes a single SeqFeature corresponding to either a primary SL or

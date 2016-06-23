@@ -74,8 +74,9 @@ def main():
 
     # Optimize SL / polyadenylation primary site selection for each
     # annotated CDS, assigning novel ORFs where appropriate
-    find_primary_sites(genome_sequence, genome_annotations, sl_sites,
-                       polya_sites, args['min_protein_length'])
+    gff_entries = find_primary_sites(genome_sequence, genome_annotations,
+                                     sl_sites, polya_sites, rnaseq_coverage, 
+                                     args['min_protein_length'])
 
     # generate genome coverage and novel ORF plots
     plot_genome_features(genome_sequence, cds_regions, rnaseq_coverage,

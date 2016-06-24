@@ -1,6 +1,7 @@
 """
 Functions for retrieving features across a set of genome annotations.
 """
+import re
 import numpy as np
 from .orfs import find_orfs
 from .util import max_filter
@@ -178,8 +179,10 @@ def find_primary_sites(genome_sequence, genome_annotations, sl_sites,
     min_protein_length: int
         Minimum length in amino acids to allow for novel ORFs
     """
-    # GFF entries
+    # GFF end CSV output ntries
     gff_entries = []
+    utr5_csv_entries = []
+    utr3_csv_entries = []
 
     # counters
     total_counter    = 0
@@ -271,6 +274,7 @@ def find_primary_sites(genome_sequence, genome_annotations, sl_sites,
                 # Left-most gene; not looking for undetected ORFs in this
                 # region at the moment.
                 if right_gene.location.strand == 1:
+                    # Positive strand
                     if len(inter_cds_sl_sites) == 0:
                         print(" [SKIPPING] %s: No SL sites detected" % gene_ids)
                         left_gene = right_gene
@@ -280,12 +284,11 @@ def find_primary_sites(genome_sequence, genome_annotations, sl_sites,
                     sl = get_max_feature(filtered_sl_sites,
                                          location_preference='right')
                     entries = [build_gff_utr_entry(sl, right_gene, chr_id)]
-                    gff_entries = gff_entries + entries
                 else:
+                    # Negative strand
                     polya = get_max_feature(filtered_polya_sites,
                                             location_preference='left')
                     entries = [build_gff_utr_entry(polya, right_gene, chr_id)]
-                    gff_entries = gff_entries + entries
                 print(" [ASSIGNED] %s: Annotated features only" % gene_ids)
             elif strand != right_gene.location.strand:
                 # Transcription Switch Sites (TSSs)
@@ -304,24 +307,63 @@ def find_primary_sites(genome_sequence, genome_annotations, sl_sites,
                                                  filtered_polya_sites, 
                                                  inter_cds_orfs, 
                                                  rnaseq_coverage[chr_id],
-                                                 start, end, strand, gene_ids)
-                gff_entries = gff_entries + entries
+                                                 start, end, strand,
+                                                 left_gene, right_gene, chr_id,
+                                                 gene_ids)
+
+            # Indices in GFF row list
+            TYPE_IDX  = 2
+            START_IDX = 3
+            END_IDX   = 4
+            SCORE_IDX = 5
+            DESC_IDX  = 8
+
+            # Generate row in CSV output
+            for utr in entries:
+                utr_start = utr[START_IDX]
+                utr_end   = utr[END_IDX]
+
+                # TODO: look into edge case where SL site appears to be directly
+                # adjacency to the CDS (ex: TcCLB.509233.50)
+                if utr_end - utr_start == 0:
+                    continue
+
+                gene_id = re.search('Name=([^;]*)', utr[DESC_IDX]).groups()[0]
+
+                # Get GC- and CT-richness
+                seq = str(genome_sequence[chr_id].seq[utr_start:utr_end])
+                gc_richness = round((seq.count('G') + seq.count('C')) / len(seq), 3)
+                ct_richness = round((seq.count('C') + seq.count('T')) / len(seq), 3)
+
+                if utr[TYPE_IDX] == 'five_prime_UTR':
+                    utr5_csv_entries.append([gene_id, utr_end - utr_start,
+                                             utr[SCORE_IDX], gc_richness, 
+                                             ct_richness])
+                else:
+                    utr3_csv_entries.append([gene_id, utr_end - utr_start,
+                                             utr[SCORE_IDX], gc_richness, 
+                                             ct_richness])
 
             # update gene, start counter and strand
             left_gene = right_gene
             start = int(left_gene.location.end)
             strand = left_gene.location.strand
 
-            if len(entries) > 0:
-                assigned_counter = assigned_counter + 1
+            if len(entries) == 0:
+                continue
+
+            # Add GFF and CSV entries to result lists
+            gff_entries = gff_entries + entries
+            assigned_counter = assigned_counter + 1
 
     print("Total inter-CDS regions scanned: %d (%d assigned)" % (total_counter,
                                                                  assigned_counter))
 
-    return gff_entries
+    return [gff_entries, utr5_csv_entries, utr3_csv_entries]
 
 def assign_inter_ptu_sites(sl_sites, polya_sites, orfs, coverage,
-                           region_start, region_end, strand, gene_ids):
+                           region_start, region_end, strand, 
+                           left_gene, right_gene, chr_id, gene_ids):
     """
     Attempts to choose the most like primary SL and Poly(A) sites for a pair of
     adjacenct genes on the same polycistronic transcriptional unit (PTU),
@@ -398,6 +440,18 @@ def assign_inter_ptu_sites(sl_sites, polya_sites, orfs, coverage,
         polya = no_orfs['polya']
     else:
         if max_score > 0:
+            # ORF GFF Entry
+            # gff_attrs = "ID=%s;Name=%s" % (orf['id'], orf['id'])
+            # writer.writerow([orf['chr'],
+            #                 "ElSayedLab",
+            #                 'ORF',
+            #                 orf['start'],
+            #                 orf['stop'],
+            #                 '.',
+            #                 orf['strand'],
+            #                 '.',
+            #                 gff_attrs])
+
             print(" [ASSIGNED] %s: Putative novel ORF detected in range: %d - %d" % (gene_ids, 
                                                                                      region_start,
                                                                                      region_end)) 
@@ -411,8 +465,8 @@ def assign_inter_ptu_sites(sl_sites, polya_sites, orfs, coverage,
         sl_gff_entry = build_gff_utr_entry(sl, right_gene, chr_id)
         polya_gff_entry = build_gff_utr_entry(polya, left_gene, chr_id)
     else:
-        sl_gff_entry = build_gff_utr_entry(sl, left_gene, chr_id)
         polya_gff_entry = build_gff_utr_entry(polya, right_gene, chr_id)
+        sl_gff_entry = build_gff_utr_entry(sl, left_gene, chr_id)
 
     # Return GFF entries for each feature
     return [sl_gff_entry, polya_gff_entry]
@@ -454,7 +508,7 @@ def select_optimal_features(sl_sites, polya_sites, strand):
 
 def build_gff_utr_entry(feature, gene, chr_id):
     """Takes a single SeqFeature corresponding to either a primary SL or
-    polyadenylation site, as well as its associated gene, and return a GFF 5'
+    polyadenylation site, as well as its associated gene, and returns a GFF 5'
     or 3'UTR entry for the pair.
 
     Parameters
@@ -476,11 +530,11 @@ def build_gff_utr_entry(feature, gene, chr_id):
 
         # Positive strand
         if gene.strand == 1:
-            start = gene.location.end + 1
+            start = gene.location.end
             end = feature.location.start
         else:
             # Negative strand
-            start = feature.location.end + 1
+            start = feature.location.end
             end = gene.location.start
     else:
         # 5'UTR
@@ -488,11 +542,11 @@ def build_gff_utr_entry(feature, gene, chr_id):
 
         # Positive strand
         if gene.strand == 1:
-            start = feature.location.end + 1
+            start = feature.location.end
             end = gene.location.start
         else:
             # Negative strand
-            start = gene.location.end + 1
+            start = gene.location.end
             end = feature.location.start
 
     # Description
@@ -506,9 +560,7 @@ def build_gff_utr_entry(feature, gene, chr_id):
     strand = '+' if gene.strand == 1 else '-'
     score = feature.qualifiers['score'][0]
 
-    parts = [chr_id, 'El-Sayed', entry_type, str(start), str(end), score, strand, '.', desc]
-
-    return "\t".join(parts) 
+    return [chr_id, 'El-Sayed', entry_type, start + 1, int(end), score, strand, '.', desc]
 
 def get_features_by_range(annotations, start, stop):
     """Returns all annotation features which fall within the specified range"""

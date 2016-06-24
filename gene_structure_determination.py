@@ -28,11 +28,10 @@ import os
 import pandas
 import warnings 
 from Bio import Seq, SeqIO, BiopythonWarning
-from Bio import  
 from BCBio import GFF
 from genestructure.genome import get_cds_regions, get_inter_cds_regions, find_primary_sites
 from genestructure.plots import plot_genome_features
-from genestructure.io import load_gff, parse_args, write_output_gff
+from genestructure.io import load_gff, parse_args, create_extended_gff, create_summary_csv_files
 
 def main():
     """Main"""
@@ -42,15 +41,16 @@ def main():
     # Get command-line arguments
     args = parse_args()
 
-    print(args)
-
     # Load genome sequence
+    print("- Loading Genome sequence...")
     genome_sequence = {x.id:x for x in SeqIO.parse(args['fasta'], 'fasta')}
 
     # Load genome annotations
+    print("- Loading Genome annotations...")
     genome_annotations = load_gff(args['gff'])
 
     # Load RNA-Seq coverage map
+    print("- Loading RNA-Seq coverage data...")
     rnaseq_coverage = {}
 
     df = pandas.read_table(args['coverage'], names=['chr_id', 'loc', 'coverage'])
@@ -59,6 +59,7 @@ def main():
         rnaseq_coverage[chr_id] = df[df.chr_id == chr_id].coverage
 
     # Load SL and Poly(A) sites
+    print("- Loading SL/Poly(A) site data...")
     sl_sites = load_gff(args['sl_gff'])
     polya_sites = load_gff(args['polya_gff'])
 
@@ -74,15 +75,27 @@ def main():
 
     # Optimize SL / polyadenylation primary site selection for each
     # annotated CDS, assigning novel ORFs where appropriate
-    gff_entries = find_primary_sites(genome_sequence, genome_annotations,
-                                     sl_sites, polya_sites, rnaseq_coverage, 
-                                     args['min_protein_length'])
+    print("- Detecting UTR boundaries...")
+    results = find_primary_sites(genome_sequence, genome_annotations, sl_sites,
+                                 polya_sites, rnaseq_coverage, 
+                                 args['min_protein_length'])
+
+    print("- Saving results...")
+    gff_entries      = results[0]
+    utr5_csv_entries = results[1]
+    utr3_csv_entries = results[2]
 
     # generate genome coverage and novel ORF plots
-    plot_genome_features(genome_sequence, cds_regions, rnaseq_coverage,
-                         args['plot_type'])
+    # plot_genome_features(genome_sequence, cds_regions, rnaseq_coverage,
+    #                      args['plot_type'])
+    out_dir = os.path.join('output', args['outdir'])
 
-    # write_output_gff()
+    if not os.path.exists(out_dir):
+        os.makedirs(out_dir, mode=0o755)
+
+    # Write output
+    create_extended_gff(out_dir, args['gff'], gff_entries)
+    create_summary_csv_files(out_dir, utr5_csv_entries, utr3_csv_entries)
 
 if __name__ == "__main__":
     main()

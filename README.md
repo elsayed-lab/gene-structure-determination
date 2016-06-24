@@ -87,10 +87,16 @@ using [samtools view](http://www.htslib.org/doc/samtools.html):
 samtools merge combined.bam */accepted_hits.bam
 ```
 
-Next, call `genomecov` with the `-d` (single-nt resolution) option:
+Next, using samtools to create a sorted version of the bam file:
 
 ```sh
-bedtools genomecov -d -ibam combined.bam | gzip > combined.coverage.gz
+samtools sort combined.bam -o combined_sorted.bam
+```
+
+Finally, call `genomecov` with the `-d` (single-nt resolution) option:
+
+```sh
+bedtools genomecov -d -ibam combined_sorted.bam | gzip > combined_sorted.coverage.gz
 ```
 
 Usage Example

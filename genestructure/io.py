@@ -44,6 +44,34 @@ def parse_args():
 
     return args
 
+def load_gff(gff):
+    """Parses a single GFF file and returns a chromosome-indexed dict for
+       that file.
+
+    Arguments
+    ---------
+    gff: str
+        Filepath to GFF
+
+    Returns
+    -------
+    dict: A dictionary representation of the GFF entries, indexed by
+            chromosome ID
+    """
+    annotations = {}
+
+    if gff.endwith('.gz'):
+        import gzip
+        fp = gzip.open(gff)
+    else:
+        fp = open(gff)
+
+    for entry in GFF.parse(fp):
+        if len(entry.features) > 0 and entry.features[0].type == 'chromosome':
+            annotations[entry.id] = entry
+    fp.close()
+
+    return annotations
 
 def create_extended_gff(out_dir, gff, entries):
     """
@@ -73,8 +101,8 @@ def create_extended_gff(out_dir, gff, entries):
 
 def create_summary_csv_files(out_dir, utr5_entries, utr3_entries):
     """Creates 5' and 3'UTR summary CSV files"""
-    utr5_outfile = os.path.join(out_dir, 'utr5_stats.csv')
-    utr3_outfile = os.path.join(out_dir, 'utr3_stats.csv')
+    utr5_outfile = os.path.join(out_dir, '5utr_stats.csv')
+    utr3_outfile = os.path.join(out_dir, '3utr_stats.csv')
 
     field_names = ['name', 'length', 'num_reads', 'gc', 'ct']
 
@@ -90,26 +118,3 @@ def create_summary_csv_files(out_dir, utr5_entries, utr3_entries):
         writer.writerow(field_names)
         writer.writerows(utr3_entries)
 
-def load_gff(gff):
-    """Parses a single GFF file and returns a chromosome-indexed dict for
-       that file.
-
-    Arguments
-    ---------
-    gff: str
-        Filepath to GFF
-
-    Returns
-    -------
-    dict: A dictionary representation of the GFF entries, indexed by
-            chromosome ID
-    """
-    annotations = {}
-
-    fp = open(gff)
-    for entry in GFF.parse(fp):
-        if len(entry.features) > 0 and entry.features[0].type == 'chromosome':
-            annotations[entry.id] = entry
-    fp.close()
-
-    return annotations

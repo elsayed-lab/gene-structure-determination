@@ -60,7 +60,7 @@ def load_gff(gff):
     """
     annotations = {}
 
-    if gff.endwith('.gz'):
+    if gff.endswith('.gz'):
         import gzip
         fp = gzip.open(gff)
     else:

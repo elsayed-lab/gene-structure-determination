@@ -62,7 +62,8 @@ def load_gff(gff):
 
     if gff.endswith('.gz'):
         import gzip
-        fp = gzip.open(gff)
+        from io import TextIOWrapper
+        fp = TextIOWrapper(gzip.open(gff))
     else:
         fp = open(gff)
 

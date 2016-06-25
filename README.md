@@ -1,15 +1,15 @@
-RNA-Seq UTR boundary and novel ORF detector
-===========================================
+Trypanosome RNA-Seq UTR boundary and novel ORF detector
+=======================================================
 
 Overview
 --------
 
-The script takes as input a reference genome and annotation, a bedtools
-coverage map for a collection of one or more mapped samples and, optionally, a
-set of spliced leader (SL) acceptor sites and polyadenylation sites, and
-attempts to determine the most likely primary UTR boundaries for each gene for
-which evidence exists, and also detects novel ORFs with transcription and other
-types of evidence.
+The script takes as input a reference genome and annotations, a bedtools
+coverage map for a collection of one or more mapped samples and a set of
+spliced leader (SL) acceptor sites and polyadenylation sites, and attempts to
+determine the most likely primary UTR boundaries for each gene for which
+evidence exists, while at the same time detecting novel ORFs with
+transcriptional and SL/Poly(A) support in the genome.
 
 It is designed primarily for use with trypanasome RNA-Seq data, for which most
 genes contain only a single exon, and genes exists in the genome in long tracts
@@ -43,7 +43,6 @@ Requirements
 - [Numpy](http://www.numpy.org/)
 - [Matplotlib](http://matplotlib.org/)
 - [bcbio-gff](https://github.com/chapmanb/bcbb/tree/master/gff)
-- [pybedtools](https://pythonhosted.org/pybedtools/)
 
 Running
 -------
@@ -54,11 +53,32 @@ This script requires the following files for input:
 
 1. Reference FASTA
 2. Reference GFF
-3. RNA-Seq coverage map
-4. Trans-splice acceptor site GFF
-5. Polyadenylation site GFF
+3. Trans-splicing acceptor site GFF
+4. Polyadenylation site GFF
+5. RNA-Seq coverage map
 
-### Construct a genome coverage map
+### Detecting SL sites and polyadenylation sites
+
+In addition to the parasite genome sequence and annotations, which usually
+comes from [TriTrypDB](http://tritrypdb.org/tritrypdb/), this script requires a
+set of detected spliced leader and polyadenylation sites.
+
+In order to generate these, a separate pipeline has been developed:
+
+- [https://github.com/elsayed-lab/utr_analysis](https://github.com/elsayed-lab/utr_analysis)
+
+The UTR analysis pipeline takes a collection of RNA-Seq reads, the same genome
+sequence and annotations used in this analysis, and a known SL DNA sequence and
+attempts to detect trans-splicing and polyadenylation events in the data. Each
+site for which a putative event was detected is saved as a separate entry an
+output GFF file, with the score corresponding to the number of RNA-Seq reads
+supporting that specific site.
+
+For more information, see the
+[README.me](https://github.com/elsayed-lab/utr_analysis) for the repository
+above.
+
+### Constructing a genome coverage map
 
 A genome coverage map is a file which contains counts of reads at each position
 in a genome, e.g.:
@@ -80,47 +100,44 @@ You can use the [bedtools
 genomecov](http://bedtools.readthedocs.org/en/latest/content/tools/genomecov.html)
 function to create such a map.
 
-First, of you have multiple samples you wish you wish you use, first combine them
-using [samtools view](http://www.htslib.org/doc/samtools.html):
+First, of you have multiple samples you wish you wish you use, first combine and
+sort them using [samtools view](http://www.htslib.org/doc/samtools.html):
 
 ```sh
-samtools merge combined.bam */accepted_hits.bam
+samtools merge - */accepted_hits.bam | samtools sort -o combined.bam -
 ```
 
-Next, using samtools to create a sorted version of the bam file:
+Next, call `genomecov` with the `-d` (single-nt resolution) option:
 
 ```sh
-samtools sort combined.bam -o combined_sorted.bam
+bedtools genomecov -d -ibam combined.bam | gzip > combined.coverage.gz
 ```
 
-Finally, call `genomecov` with the `-d` (single-nt resolution) option:
-
-```sh
-bedtools genomecov -d -ibam combined_sorted.bam | gzip > combined_sorted.coverage.gz
-```
+You should now have a gzip-compressed coverage map spanning the entire parasite
+genome.
 
 Usage Example
 -------------
 
-Example call to `rnaseq_orf_detector.py`:
+Example call to `gene_structure_determination.py`:
 
 ```sh
-./rnaseq_orf_detector.py \
+./gene_structure_determination.py \
     -c $SCRATCH/tcruzi-hsapiens/tophat/tcruzi/tcruzi_all_samples_sorted.coverage.gz \
     -g $REF/tcruzi_clbrener_esmeraldo-like/annotation/TriTrypDB-27_TcruziCLBrenerEsmeraldo-like.gff \
     -f $REF/tcruzi_clbrener_esmeraldo-like/genome/TriTrypDB-27_TcruziCLBrenerEsmeraldo-like_Genome.fasta \
     -s $RESEARCH/2015/110-utr-lengths/input/tcruzi_infecting_hsapiens_combined_sl_sorted.gff \
     -p $RESEARCH/2015/110-utr-lengths/input/tcruzi_infecting_hsapiens_combined_polya_sorted.gff \
-    output.gff
+    tcruzi_all
 ```
 
 Full list of command-line parameters:
 
 ```sh
-usage: rnaseq_orf_detector.py [-h] -c COVERAGE -f FASTA -g GFF [-s SL_GFF]
+usage: gene_structure_determination.py [-h] -c COVERAGE -f FASTA -g GFF [-s SL_GFF]
                               [-p POLYA_GFF] -l MIN_PROTEIN_LENGTH
                               [-t PLOT_TYPE]
-                              OUTFILE
+                              OUTDIR
 
 Detect novel ORFs using RNA-Seq data.
 

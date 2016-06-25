@@ -1,6 +1,7 @@
 """
 I/O functions
 """
+import os
 import csv
 import shutil
 from argparse import ArgumentParser
@@ -78,13 +79,13 @@ def create_summary_csv_files(out_dir, utr5_entries, utr3_entries):
     field_names = ['name', 'length', 'num_reads', 'gc', 'ct']
 
     # write 5'UTR summary statistics
-    with  open(utr5_outfile) as fp:
+    with  open(utr5_outfile, 'w') as fp:
         writer = csv.writer(fp)
         writer.writerow(field_names)
         writer.writerows(utr5_entries)
 
     # write 3'UTR summary statistics
-    with  open(utr3_outfile) as fp:
+    with  open(utr3_outfile, 'w') as fp:
         writer = csv.writer(fp)
         writer.writerow(field_names)
         writer.writerows(utr3_entries)

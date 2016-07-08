@@ -87,7 +87,7 @@ def create_extended_gff(out_dir, gff, entries):
 
     # Copy original GFF to output dir
     outfile = os.path.join(out_dir, 
-                           os.path.basename(gff).replace('.gff', '_with_utrs.gff'))
+                           os.path.basename(gff).replace('.gff', '-with-utrs.gff'))
     shutil.copyfile(gff, outfile)
 
     # Open output file for appending

@@ -124,11 +124,11 @@ def get_inter_cds_regions(annotations):
 
     return inter_cds_regions
 
-def find_primary_sites(genome_sequence, genome_annotations, sl_sites,
-                       polya_sites, rnaseq_coverage, min_protein_length=30):
+def find_utr_boundaries(genome_sequence, genome_annotations, sl_sites,
+                        polya_sites, rnaseq_coverage, min_protein_length=30):
     """
-    Simultaneously chooses optimal SL and Poly(A) sites for a set of two
-    neighboring CDS's and detecting novel ORFs where appropriate.
+    Simultaneously detects primray and alternative  SL and Poly(A) sites for a
+    set of two neighboring CDS's and detecting novel ORFs where appropriate.
 
     The goal of this function is to attempt to determine the most likely
     primary SL/Poly(A) sites for the set of known CDS's for which we have
@@ -137,6 +137,9 @@ def find_primary_sites(genome_sequence, genome_annotations, sl_sites,
     between two CDS's), to extend the current genome annotation to include
     these ORFs. This also serves to provide us with better estimates about
     the true 5' and 3'UTR lengths for parasite genes.
+
+    Further, this function also keeps track of alternative (non-primary)
+    trans-splicing and polyadenylation sites.
 
     Depending on the amount of detected SL and Poly(A) sites between a set
     of known CDS's, there may be multiple possible configurations of
@@ -250,6 +253,10 @@ def find_primary_sites(genome_sequence, genome_annotations, sl_sites,
                 strand = left_gene.location.strand
                 continue
 
+            # DEBUGGING
+            # if right_gene.id == 'TcCLB.508727.60':
+            #     import pdb; pdb.set_trace();
+
             # Filter sites down to ~3 optimal SL's / Poly(A)'s
             filtered_sl_sites = filter_features(inter_cds_sl_sites, start, end)
             filtered_polya_sites = filter_features(inter_cds_polya_sites, start, end)
@@ -318,13 +325,16 @@ def find_primary_sites(genome_sequence, genome_annotations, sl_sites,
             SCORE_IDX = 5
             DESC_IDX  = 8
 
+            # Compare primary and alternate site usage
+
+
             # Generate row in CSV output
             for utr in entries:
                 utr_start = utr[START_IDX]
                 utr_end   = utr[END_IDX]
 
                 # TODO: look into edge case where SL site appears to be directly
-                # adjacency to the CDS (ex: TcCLB.509233.50)
+                # adjacenct to the CDS (ex: TcCLB.509233.50)
                 if utr_end - utr_start == 0:
                     continue
 
@@ -460,8 +470,9 @@ def assign_inter_ptu_sites(sl_sites, polya_sites, orfs, coverage,
     if max_score == 0:
         return []
 
-    # Create GFF entries
+    # Create GFF entries and 
     if strand == 1:
+        
         sl_gff_entry = build_gff_utr_entry(sl, right_gene, chr_id)
         polya_gff_entry = build_gff_utr_entry(polya, left_gene, chr_id)
     else:

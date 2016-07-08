@@ -29,7 +29,7 @@ import pandas
 import warnings 
 from Bio import Seq, SeqIO, BiopythonWarning
 from BCBio import GFF
-from genestructure.genome import get_cds_regions, get_inter_cds_regions, find_primary_sites
+from genestructure.genome import get_cds_regions, get_inter_cds_regions,find_utr_boundaries
 from genestructure.plots import plot_genome_features
 from genestructure.io import load_gff, parse_args, create_extended_gff, create_summary_csv_files
 
@@ -73,17 +73,18 @@ def main():
     cds_regions = get_cds_regions(genome_annotations)
     inter_cds_regions = get_inter_cds_regions(genome_annotations)
 
-    # Optimize SL / polyadenylation primary site selection for each
-    # annotated CDS, assigning novel ORFs where appropriate
+    # Optimize SL / polyadenylation primary and alternative site selection for
+    # each annotated CDS, assigning novel ORFs where appropriate
     print("- Detecting UTR boundaries...")
-    results = find_primary_sites(genome_sequence, genome_annotations, sl_sites,
-                                 polya_sites, rnaseq_coverage, 
-                                 args['min_protein_length'])
+    sites = find_utr_boundaries(genome_sequence, genome_annotations, sl_sites,
+                                polya_sites, rnaseq_coverage, 
+                                args['min_protein_length'])
+
 
     print("- Saving results...")
-    gff_entries      = results[0]
-    utr5_csv_entries = results[1]
-    utr3_csv_entries = results[2]
+    gff_entries      = sites[0]
+    utr5_csv_entries = sites[1]
+    utr3_csv_entries = sites[2]
 
     # generate genome coverage and novel ORF plots
     # plot_genome_features(genome_sequence, cds_regions, rnaseq_coverage,

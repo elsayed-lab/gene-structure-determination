@@ -9,6 +9,125 @@ from matplotlib.colors import ListedColormap,LinearSegmentedColormap
 matplotlib.use('Agg')
 from matplotlib import pyplot as plt
 
+def get_cds_regions(annotations):
+    """Returns a chromosome-indexed dict of CDS locations for a
+    specified GFF.
+
+    Arguments
+    ---------
+    annotations: dict
+        A dictionary of chromomsome Seq instances as parsed from a GFF file.
+
+    Returns
+    -------
+    cds_regions: dict
+        A dictionary of CDS coordinates across the genome.
+    """
+    # Determine locations of CDS regions for each chromosome
+    cds_regions = {}
+
+    for chr_id, chromosome in annotations.items():
+        # get chromosome dimensions (the first feature represents the
+        # chromosome itself)
+        ch_end = int(chromosome.features[0].location.end)
+
+        # filter out everything except for genes
+        genes = [x for x in chromosome.features if x.type == 'gene']
+
+        # order by position along chromosome
+        genes.sort(key=lambda x: x.location.start)
+
+        # add range before first gene
+        start = 0
+
+        # keep track of strand of polycistronic transcriptional unit
+        strand = None
+
+        cds_regions[chr_id] = {
+            -1: [],
+            +1: []
+        }
+
+        # iterate over genes and add CDS coordinates
+        for gene in genes:
+            coords = (int(gene.location.start), int(gene.location.end))
+            cds_regions[chr_id][gene.location.strand].append(coords)
+
+    return cds_regions
+
+def get_inter_cds_regions(annotations):
+    """Returns a chromosome-indexed dict of inter-CDS regions for a
+    specified GFF.
+
+    Arguments
+    ---------
+    annotations: dict
+        A dictionary of chromomsome Seq instances as parsed from a GFF file.
+
+    Returns
+    -------
+    cds_regions: dict
+        A dictionary of CDS coordinates across the genome.
+    """
+    # Determine locations of inter-CDS regions for each chromosome
+    inter_cds_regions = {}
+
+    for chr_id, chromosome in annotations.items():
+        # get chromosome dimensions (the first feature represents the
+        # chromosome itself)
+        ch_end = int(chromosome.features[0].location.end)
+
+        # filter out everything except for genes
+        genes = [x for x in chromosome.features if x.type == 'gene']
+
+        # order by position along chromosome
+        genes.sort(key=lambda x: x.location.start)
+
+        # add range before first gene
+        start = 0
+
+        # keep track of strand of polycistronic transcriptional unit
+        strand = None
+
+        inter_cds_regions[chr_id] = {
+            -1: [],
+            +1: []
+        }
+
+        # iterate through genes and store the ranges between them;
+        # for TriTrypDB files, the gene boundaries are generally the same
+        # as the CDS boundaries.
+        for gene in genes:
+            # Determine location for the region up to start of the gene
+            end = int(gene.location.start)
+
+            # Skip over snoRNAs, etc. that are nested inside of other genes
+            # For example: TcCLB TcChr22-2 179,000:180,000
+            if end <= start:
+                continue
+
+            # Add CDS to relevant list based on strand
+            if strand is None:
+                # Left-most gene
+                inter_cds_regions[chr_id][gene.location.strand].append((start, end))
+            elif strand != gene.location.strand:
+                # Add ORFs in both directions at transcription switch sites (TSSs)
+                inter_cds_regions[chr_id][+1].append((start, end))
+                inter_cds_regions[chr_id][-1].append((start, end))
+            else:
+                # Within PTU; look for ORFs on same strand
+                inter_cds_regions[chr_id][strand].append((start, end))
+
+            # update start counter and strand
+            start = int(gene.location.end)
+            strand = gene.location.strand
+
+        # add region after last gene
+        inter_cds_regions[chr_id][strand].append((start, ch_end))
+
+    return inter_cds_regions
+
+
 def plot_genome_features(genome_sequence, cds_regions, rnaseq_coverage, 
                          plot_type='discrete'):
     """Creates image plots of specified features (CDSs, RNA-Seq coverage,

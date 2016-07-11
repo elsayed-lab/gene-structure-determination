@@ -100,6 +100,62 @@ def create_extended_gff(out_dir, gff, entries):
     # clean up
     fp.close()
 
+def build_gff_utr_entry(feature, gene, chr_id):
+    """Takes a single SeqFeature corresponding to either a primary SL or
+    polyadenylation site, as well as its associated gene, and returns a GFF 5'
+    or 3'UTR entry for the pair.
+
+    Parameters
+    ----------
+    feature: SeqFeature
+        A single-coordinate SeqFeature representing an SL or Poly(A) site.
+    gene: SeqFeature
+        Gene for which the feature belongs to.
+    chr_id: str
+        Chromosome identifier.
+        
+    Return
+    ------
+    str: A GFF entry of type five_prime_UTR or three_prime_UTR.
+    """
+    # 3'UTR
+    if feature.type == 'polyA_site':
+        entry_type = 'three_prime_UTR'
+
+        # Positive strand
+        if gene.strand == 1:
+            start = gene.location.end
+            end = feature.location.start
+        else:
+            # Negative strand
+            start = feature.location.end
+            end = gene.location.start
+    else:
+        # 5'UTR
+        entry_type = 'five_prime_UTR'
+
+        # Positive strand
+        if gene.strand == 1:
+            start = feature.location.end
+            end = gene.location.start
+        else:
+            # Negative strand
+            start = gene.location.end
+            end = feature.location.start
+
+    # Description
+    # ID=TcCLB.511911.98_5utr;Name=TcCLB.511911.98;description=hypothetical+protein,+conserved
+    short_type = '5utr' if entry_type == 'five_prime_UTR' else '3utr'
+
+    desc = 'ID=%s_%s;Name=%s;description=%s' % (gene.id, short_type, gene.id,
+                                                gene.qualifiers['description'][0])
+
+    # GFF parts
+    strand = '+' if gene.strand == 1 else '-'
+    score = feature.qualifiers['score'][0]
+
+    return [chr_id, 'El-Sayed', entry_type, start + 1, int(end), score, strand, '.', desc]
+
 def create_summary_csv_files(out_dir, utr5_entries, utr3_entries):
     """Creates 5' and 3'UTR summary CSV files"""
     utr5_outfile = os.path.join(out_dir, '5utr_stats.csv')

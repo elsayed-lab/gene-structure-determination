@@ -74,6 +74,14 @@ site for which a putative event was detected is saved as a separate entry an
 output GFF file, with the score corresponding to the number of RNA-Seq reads
 supporting that specific site.
 
+Since it is often useful to detect trans-splicing acceptor sites and
+polyadenylation sites separately for different developmental stages, we provide
+a script
+([combine_site_data.py](https://github.com/elsayed-lab/utr_length_composition_and_site_usage_analysis/blob/master/scripts/combine_site_data.py)
+which can be used to combine data across multiple stages. By using data from
+all stages measured, we can be arrive at more accurate estimates of the general
+UTR lengths.
+
 For more information, see the
 [README.me](https://github.com/elsayed-lab/utr_analysis) for the repository
 above.

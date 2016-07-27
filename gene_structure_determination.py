@@ -21,22 +21,23 @@ For example, using samtools, you can do:
 
 To generate a genome coverage maps:
 
-    bedtools genomecov -d -ibam combined_sorted.bam > combined_sorted.coverage 
+    bedtools genomecov -d -ibam combined_sorted.bam > combined_sorted.coverage
 
 """
-import warnings 
+import warnings
 from genestructure.analyzer import GeneStructureAnalyzer
 from genestructure.io import parse_args
+from Bio import BiopythonWarning
 
 def main():
     """Main"""
     # Ignore Biopython warnings
-    warnings.simplefilter('ignore', BiopythonWarning) 
+    warnings.simplefilter('ignore', BiopythonWarning)
 
     # Get command-line arguments and instanstiate GeneStructureAnalyzer
     args = parse_args()
     analyzer = GeneStructureAnalyzer(args['fasta'], args['gff'],
-                                     args['coverage'], args['sl_gff'], 
+                                     args['coverage'], args['sl_gff'],
                                      args['polya_gff'],
                                      args['min_protein_length'], args['outdir'])
 

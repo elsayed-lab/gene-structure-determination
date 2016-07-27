@@ -4,10 +4,12 @@ Keith Hughitt <khughitt@umd.edu>
 July, 2016
 """
 import os
+import sys
+import logging
 import pandas
 import re
 import numpy as np
-from Bio import Seq, SeqIO, BiopythonWarning
+from Bio import Seq, SeqIO
 from BCBio import GFF
 from .orfs import find_orfs
 from .util import max_filter
@@ -34,13 +36,13 @@ class GeneStructureAnalyzer(object):
     annotated genes. This ensures that the UTR boundary of one gene will not
     overlap that of its neighbor.
 
-    For simplicity, this script currently does not analyzes UTRs at the ends 
+    For simplicity, this script currently does not analyzes UTRs at the ends
     of chromosomes, or in transcript switch sites (TSSs).
     """
     def __init__(self, fasta, gff, coverage, sl_gff, polya_gff,
                  min_protein_length, outdir):
         """Creates a new GeneStructureAnalyzer instance
-        
+
         Arguments
         ---------
         fasta: str
@@ -60,25 +62,29 @@ class GeneStructureAnalyzer(object):
         """
         self.min_protein_length = min_protein_length
         self.outdir = outdir
-        
+
+        # Setup loggers
+        self.setup_logger()
+
         # Load genome sequence
-        logging.info("- Loading Genome sequence...")
+        logging.info("Loading Genome sequence...")
         self.genome_sequence = {x.id:x for x in SeqIO.parse(fasta, 'fasta')}
 
         # Load genome annotations
-        logging.info("- Loading Genome annotations...")
+        logging.info("Loading Genome annotations...")
         self.genome_annotations = load_gff(gff)
 
         # Load RNA-Seq coverage map
-        logging.info("- Loading RNA-Seq coverage data...")
+        logging.info("Loading RNA-Seq coverage data...")
         df = pandas.read_table(coverage, names=['chr_id', 'loc', 'coverage'])
 
         self.rnaseq_coverage = {}
         for chr_id in self.genome_sequence:
+            #pylint: disable=maybe-no-member
             self.rnaseq_coverage[chr_id] = df[df.chr_id == chr_id].coverage
 
         # Load SL and Poly(A) sites
-        logging.info("- Loading SL/Poly(A) site data...")
+        logging.info("Loading SL/Poly(A) site data...")
         self.sl_sites = load_gff(sl_gff)
         self.polya_sites = load_gff(polya_gff)
 
@@ -108,7 +114,7 @@ class GeneStructureAnalyzer(object):
 
         # Optimize SL / polyadenylation primary and alternative site selection for
         # each annotated CDS, assigning novel ORFs where appropriate
-        logging.info("- Detecting UTR boundaries...")
+        logging.info("Detecting UTR boundaries...")
         self.find_utr_boundaries()
 
         # generate genome coverage and novel ORF plots
@@ -119,15 +125,16 @@ class GeneStructureAnalyzer(object):
         #                      plot_type)
 
         # Write output
-        logging.info("- Saving results...")
-        out_dir = os.path.join('output', outdir])
+        logging.info("Saving results...")
+
+        out_dir = os.path.join('output', outdir)
         if not os.path.exists(out_dir):
             os.makedirs(out_dir, mode=0o755)
 
-        create_extended_gff(out_dir, gff, gff_entries)
-        create_summary_csv_files(out_dir, utr5_csv_entries, utr3_csv_entries)
+        # create_extended_gff(out_dir, gff, gff_entries)
+        # create_summary_csv_files(out_dir, utr5_csv_entries, utr3_csv_entries)
 
-    def find_utr_boundaries():
+    def find_utr_boundaries(self):
         """
         Simultaneously detects primray and alternative  SL and Poly(A) sites for a
         set of two neighboring CDS's and detecting novel ORFs where appropriate.
@@ -189,15 +196,15 @@ class GeneStructureAnalyzer(object):
                 self.total_counter = self.total_counter + 1
 
                 # Update gene range description (used for logging)
-                left_gid = left_gene.id if self.left_gene != None else 'None'
+                left_gid = self.left_gene.id if self.left_gene != None else 'None'
                 right_gid = self.right_gene.id
                 self.gene_ids = "%s - %s" % (left_gid, right_gid)
 
                 # attempt to detect UTR boundaries in the region
-                self.process_intercds_region()
+                self.process_inter_cds_region()
 
         # Print message when finished
-        txt = "# Total inter-CDS regions scanned: %d (%d assigned)"
+        txt = "Total inter-CDS regions scanned: %d (%d assigned)"
         logging.info(txt % (self.total_counter, self.assigned_counter))
 
     def process_inter_cds_region(self):
@@ -205,11 +212,11 @@ class GeneStructureAnalyzer(object):
         # Skip over snoRNAs, etc. that are nested inside of other genes
         # For example: TcCLB TcChr22-2 179,000:180,000
         if self.end <= self.start:
-            self.next(" [SKIPPING] %s: Nested genes" % self.gene_ids)
+            self.next("[SKIPPING] %s: Nested genes" % self.gene_ids)
             return
 
         # Get sequence record for the range
-        seq_record = genome_sequence[self.chr_id][self.start:self.end]
+        seq_record = self.genome_sequence[self.chr_id][self.start:self.end]
 
         # Retrieve SL and Poly(A) sites in region
         inter_cds_sl_sites    = self.get_features_by_range(self.sl_sites[self.chr_id])
@@ -217,45 +224,45 @@ class GeneStructureAnalyzer(object):
 
         # If no sites found, skip
         if len(inter_cds_sl_sites) == 0 and len(inter_cds_polya_sites) == 0:
-            self.next(" [SKIPPING] %s: No features detected" % self.gene_ids)
+            self.next("[SKIPPING] %s: No features detected" % self.gene_ids)
             return
 
         # DEBUGGING
         # if right_gene.id == 'TcCLB.508727.60':
         #     import pdb; pdb.set_trace();
 
-        # TODO: deal with cases where only sl site or polya sites were found 
-        # if len(filtered_sl_sites) == 0:
-        #     self.next(" [SKIPPING] %s: No SL sites detected" % self.gene_ids)
-        #     return
-        # elif len(filtered_polya_sites) == 0:
-        #     self.next(" [SKIPPING] %s: No Poly(A) sites detected" % self.gene_ids)
-        #     return
-
         # Add CDS to relevant list based on strand
         if self.strand is None:
             # Left-most gene
-            self.next(" [SKIPPING] %s: Start of chromosome" % self.gene_ids)
+            self.next("[SKIPPING] %s: Start of chromosome" % self.gene_ids)
             return
         elif self.strand != self.right_gene.location.strand:
             # Transcription Switch Sites (TSSs)
-            self.next(" [SKIPPING] %s: Inter-PTU region" % self.gene_ids)
+            self.next("[SKIPPING] %s: Inter-PTU region" % self.gene_ids)
             return
+        elif len(inter_cds_sl_sites) == 0:
+            # Only Poly(A) sites detected for region
+            logging.info("[ASSIGNED] %s: 3'UTR only" % self.gene_ids)
+            inter_cds = self.get_polya_only_inter_cds(inter_cds_polya_sites)
+        elif len(inter_cds_polya_sites) == 0:
+            # Only SL sites detected for region
+            logging.info("[ASSIGNED] %s: 5'UTR only" % self.gene_ids)
+            inter_cds = self.get_sl_only_inter_cds(inter_cds_sl_sites)
         else:
-            # Within PTU features 
+            # Within PTU features
             inter_cds = self.create_inter_cds_region(inter_cds_sl_sites,
                                                      inter_cds_polya_sites,
-                                                     seq_record) 
+                                                     seq_record)
 
         # if features were assigned, add to list and continue
         if inter_cds is not None:
             self.inter_cds_regions.append(inter_cds)
-            self.assigned_counter = assigned_counter + 1
+            self.assigned_counter = self.assigned_counter + 1
 
         # update gene, start counter and strand
         self.next()
 
-    def create_inter_cds_region(sl_sites, polya_sites, seq_record)
+    def create_inter_cds_region(self, sl_sites, polya_sites, seq_record):
         """
         Attempts to choose the most like primary SL and Poly(A) sites for a pair of
         adjacenct genes on the same polycistronic transcriptional unit (PTU),
@@ -269,20 +276,21 @@ class GeneStructureAnalyzer(object):
         primary sites to each feature.
         """
         # Filter sites down to ~3 optimal SL's / Poly(A)'s
-        filtered_sl_sites    = filter_features(sl_sites)
-        filtered_polya_sites = filter_features(polya_sites)
+        filtered_sl_sites    = self.filter_features(sl_sites)
+        filtered_polya_sites = self.filter_features(polya_sites)
 
         # Find the optimal ORF-containing configuration, if ORFs can be
         # detected in the inter-CDS region
-        orf_result = select_optimal_features_with_orf(filtered_sl_sites,
-                                                      filtered_polya_sites, 
-                                                      seq_record)
+        orf_result = self.select_optimal_features_with_orf(filtered_sl_sites,
+                                                           filtered_polya_sites,
+                                                           seq_record)
         max_score = orf_result['max_score']
         sl = orf_result['sl']
         polya = orf_result['polya']
 
         # Also compute the score for the best arrangement without any novel ORFs
-        no_orfs = select_optimal_features(filtered_sl_sites, filtered_polya_sites, strand)
+        no_orfs = self.select_optimal_features(filtered_sl_sites,
+                                               filtered_polya_sites)
 
         # total number of features assigned for configuration
         total_assigned = bool(no_orfs['sl']) + bool(no_orfs['polya'])
@@ -293,31 +301,81 @@ class GeneStructureAnalyzer(object):
 
         # check to see if configuration without a novel ORF performs best
         if no_orf_score > max_score:
-            logging.info(" [ASSIGNED] %s: Annotated features only" % self.gene_ids) 
+            logging.info("[ASSIGNED] %s: Annotated features only" % self.gene_ids)
             max_score = no_orf_score
             sl = no_orfs['sl']
             polya = no_orfs['polya']
         elif max_score > 0:
-            logging.info(" [ASSIGNED] %s: Putative novel ORF detected in range: %d - %d" % (self.gene_ids, 
-                                                                                        self.start,
+            msg = "[ASSIGNED] %s: Putative novel ORF detected in range: %d - %d"
+            logging.info(msg % (self.gene_ids, self.start, self.end))
+
         # If no valid configurations were encountered (e.g. SL/Poly(A) sites
         # entirely in wrong orientation) then don't add any GFF entries
         if max_score == 0:
             return None
 
         # Create InterCDSRegion instances
-        if strand == 1:
+        if self.strand == 1:
             # positive strand (3'UTR before 5'UTR)
             return InterCDSRegion(
-                ThreePrimeUTR(left_gene, polya_sites, polya, self.chr_id, strand),
-                FivePrimeUTR(right_gene, sl_sites, sl, self.chr_id, strand)
+                ThreePrimeUTR(self.left_gene, polya_sites, polya, self.strand,
+                              self.chr_id, self.genome_sequence),
+                FivePrimeUTR(self.right_gene, sl_sites, sl, self.strand,
+                             self.chr_id, self.genome_sequence)
             )
         else:
             # negative strand (5'UTR before 3'UTR)
             return InterCDSRegion(
-                FivePrimeUTR(left_gene, sl_sites, sl, self.chr_id, strand),
-                ThreePrimeUTR(right_gene, polya_sites, polya, self.chr_id, strand)
+                FivePrimeUTR(self.left_gene, sl_sites, sl, self.strand,
+                             self.chr_id, self.genome_sequence),
+                ThreePrimeUTR(self.right_gene, polya_sites, polya, self.strand,
+                              self.chr_id, self.genome_sequence) 
             )
+
+    def get_sl_only_inter_cds(self, sl_sites):
+        """Returns an InterCDS instance for a region with only SL sites"""
+        if self.strand == 1:
+            # positive strand
+            primary_sl = self.get_max_feature(sl_sites, location_preference='right')
+
+            return InterCDSRegion(
+                None,
+                FivePrimeUTR(self.right_gene, sl_sites, primary_sl,
+                             self.strand, self.chr_id, self.genome_sequence),
+            )
+        else:
+            # negative strand
+            primary_sl = self.get_max_feature(sl_sites, location_preference='left')
+
+            return InterCDSRegion(
+                FivePrimeUTR(self.left_gene, sl_sites, primary_sl, self.strand,
+                             self.chr_id, self.genome_sequence),
+                None
+            )
+
+    def get_polya_only_inter_cds(self, polya_sites):
+        """Returns an InterCDS instance for a region with only polya sites"""
+        if self.strand == 1:
+            # positive strand
+            primary_polya = self.get_max_feature(polya_sites, 
+                                                 location_preference='left')
+
+            return InterCDSRegion(
+                ThreePrimeUTR(self.left_gene, polya_sites, primary_polya,
+                              self.strand, self.chr_id, self.genome_sequence),
+                None 
+            )
+        else:
+            # negative strand
+            primary_polya = self.get_max_feature(polya_sites,
+                                                 location_preference='right')
+
+            return InterCDSRegion(
+                None,
+                ThreePrimeUTR(self.right_gene, polya_sites, primary_polya,
+                              self.strand, self.chr_id, self.genome_sequence)
+            )
+
 
     def next(self, msg=''):
         """Go to next inter-CDS region"""
@@ -351,7 +409,7 @@ class GeneStructureAnalyzer(object):
         orfs = find_orfs(seq_record.seq, self.min_protein_length, self.strand)
 
         coverage = self.rnaseq_coverage[self.chr_id]
-        
+
         max_score = 0
         max_score_orf = None
         sl = None
@@ -365,16 +423,16 @@ class GeneStructureAnalyzer(object):
 
             # compute density of reads covering ORF
             orf_coverage = sum(coverage[orf_start:orf_end])
-            
+
             # compute score for region to the left of ORF
             lhs_sl_sites    = [sl for sl in sl_sites if sl.location.start < orf_start]
             lhs_polya_sites = [polya for polya in polya_sites if polya.location.start < orf_start]
-            lhs = select_optimal_features(lhs_sl_sites, lhs_polya_sites)
+            lhs = self.select_optimal_features(lhs_sl_sites, lhs_polya_sites)
 
             # compute score for region to the right of ORF
             rhs_sl_sites    = [sl for sl in sl_sites if sl.location.start > orf_end]
             rhs_polya_sites = [polya for polya in polya_sites if polya.location.start > orf_end]
-            rhs = select_optimal_features(rhs_sl_sites, rhs_polya_sites)
+            rhs = self.select_optimal_features(rhs_sl_sites, rhs_polya_sites)
 
             # total number of features assigned for configuration
             total_assigned = bool(lhs['sl']) + bool(lhs['polya']) + bool(rhs['sl']) + bool(rhs['polya'])
@@ -390,14 +448,14 @@ class GeneStructureAnalyzer(object):
                 max_score = score
                 max_score_orf = orf
 
-                if strand == 1:
+                if self.strand == 1:
                     sl = rhs['sl']
                     polya = lhs['polya']
                 else:
                     sl = lhs['sl']
                     polya = rhs['polya']
 
-        return {'sl': sl, 'polya': polya, 'max_score': max_score, 
+        return {'sl': sl, 'polya': polya, 'max_score': max_score,
                 'orf': max_score_orf}
 
     def select_optimal_features(self, sl_sites, polya_sites):
@@ -419,12 +477,12 @@ class GeneStructureAnalyzer(object):
                 #  If SL/Poly(A) are in wrong in wrong orientation,
                 #  which would lead to negative-sized intergenic
                 #  regions, skip.
-                if ((self.strand ==  1 and polya_site.location.start >= sl_site.location.start) or 
+                if ((self.strand ==  1 and polya_site.location.start >= sl_site.location.start) or
                     (self.strand == -1 and polya_site.location.start <= sl_site.location.start)):
                     continue
 
                 # compute read support for features
-                read_support = (int(sl_site.qualifiers['score'][0]) + 
+                read_support = (int(sl_site.qualifiers['score'][0]) +
                                 int(polya_site.qualifiers['score'][0]))
 
                 # keep feature pair if highest scoring encountered
@@ -435,7 +493,7 @@ class GeneStructureAnalyzer(object):
 
         return {'sl': sl, 'polya': polya, 'read_support': max_read_support}
 
-    def get_features_by_range(annotations):
+    def get_features_by_range(self, annotations):
         """Returns all annotation features which fall within the specified range"""
         features = []
 
@@ -445,7 +503,7 @@ class GeneStructureAnalyzer(object):
 
         return features
 
-    def get_max_feature(features, location_preference='right'):
+    def get_max_feature(self, features, location_preference='right'):
         """Takes a list of features and finds the one with the highest coverage
         support. In the case of ties it will choose the site closest to the
         direction specified."""
@@ -471,7 +529,7 @@ class GeneStructureAnalyzer(object):
         else:
             return np.array(features)[positions == max(positions)][0]
 
-    def features_to_1d_array(features, start, end):
+    def features_to_1d_array(self, features, start, end):
         """Takes a list of GFF features such as SL sites and creates a 1d array
         representation of them with the value at each position in the array
         equaling the score of the feature, or 0 if no features exist at that
@@ -501,7 +559,7 @@ class GeneStructureAnalyzer(object):
                         min_ratio_alt_to_prim=0.01):
         """Filters a set of features (e.g. SL sites) to remove any low-support or
         closeby sites.
-        
+
         Parameters
         ----------
         features: list
@@ -520,7 +578,7 @@ class GeneStructureAnalyzer(object):
             reads to avoid being filtered out.
         """
         # Convert features to a 1d array representation and filter
-        feature_arr = features_to_1d_array(features, self.start, self.end)
+        feature_arr = self.features_to_1d_array(features, self.start, self.end)
 
         # Smooth out everything except for local peaks
         feature_arr = max_filter(feature_arr, width=window_size)
@@ -535,48 +593,25 @@ class GeneStructureAnalyzer(object):
         feature_arr[feature_arr < min_num_reads] = 0
 
         # Get the indices of coverage peaks
-        indices = np.arange(len(feature_arr))[feature_arr != 0] + start
+        indices = np.arange(len(feature_arr))[feature_arr != 0] + self.start
 
         return [x for x in features if x.location.start in indices]
+    
+    def setup_logger(self):
+        """Sets up global logger for gene structure analysis"""
+        # get master logger and set log-level to DEBUG
+        root = logging.getLogger()
+        root.setLevel(logging.DEBUG)
 
-class Gene(object):
-    """Base Gene class"""
-    def __init__(strand):
-        pass
+        # add a stream handler to have log output to STDOUT
+        handler = logging.StreamHandler(sys.stdout)
+        handler.setLevel(logging.DEBUG)
 
-class UpstreamGene(Gene):
-    """Upstream gene"""
-    def __init__(strand):
-        pass
+        # log format
+        formatter = logging.Formatter('%(asctime)s (%(levelname)s) %(message)s')
+        handler.setFormatter(formatter)
 
-class DownstreamGene(Gene):
-    """Downstream gene"""
-    def __init__(strand):
-        pass
-
-class PrimarySite(object):
-    def __init__(self, gene, chr_id):
-        """Base constructor"""
-        self.gene = gene
-        self.chr_id = chr_id
-
-class UntranslatedRegion(object):
-    def __init__(self, gene, features, primary_feature, chr_id, strand):
-        self.gene = gene
-        self.features = features
-        self.primary_feature = primary_feature
-        self.chr_id = chr_id
-        self.strand = strand
-
-class FivePrimeUTR(UntranslatedRegion):
-    """FivePrimeUTR class definition"""
-    def __init__(self, gene, sl_sites, primary_sl, chr_id, strand):
-        super().__init__(gene, sl_sites, primary_sl, chr_id, strand)
-
-class ThreePrimeUTR(UntranslatedRegion):
-    """ThreePrimeUTR class definition"""
-    def __init__(self):
-        super().__init__(gene, polya_sites, primary_polya, chr_id, strand)
+        root.addHandler(handler)
 
 class InterCDSRegion(object):
     """InterCDSRegion class definition"""
@@ -585,69 +620,92 @@ class InterCDSRegion(object):
         self.right_feature = right_feature
     def to_gff(self):
         """Returns a GFF representation of the UTR boundaries"""
-        # Indices in GFF row list
-        TYPE_IDX  = 2
-        START_IDX = 3
-        END_IDX   = 4
-        SCORE_IDX = 5
-        DESC_IDX  = 8
-
         # Generate row in CSV output
-        for utr in [self.left_feature, self.right_feature]:
-            utr_start = utr[START_IDX]
-            utr_end   = utr[END_IDX]
+        # for utr in [self.left_feature, self.right_feature]:
+        pass
 
-            # TODO: look into edge case where SL site appears to be directly
-            # adjacenct to the CDS (ex: TcCLB.509233.50)
-            if utr_end - utr_start == 0:
-                return
+class UntranslatedRegion(object):
+    def __init__(self, gene, features, primary_feature, strand, chr_id):
+        self.gene = gene
+        self.features = features
+        self.primary_feature = primary_feature
+        self.chr_id = chr_id
+        self.strand = strand
 
-            gene_id = re.search('Name=([^;]*)', utr[DESC_IDX]).groups()[0]
+        self.score = primary_feature.qualifiers['score'][0]
 
-            # Get GC- and CT-richness
-            seq = str(genome_sequence[self.chr_id].seq[utr_start:utr_end])
-            gc_richness = round((seq.count('G') + seq.count('C')) / len(seq), 3)
-            ct_richness = round((seq.count('C') + seq.count('T')) / len(seq), 3)
+        self.entry_type = None
+        self.start = None
+        self.end = None
+        self.seq = None
 
-            if utr[TYPE_IDX] == 'five_prime_UTR':
-                utr5_csv_entries.append([gene_id, utr_end - utr_start,
-                                        utr[SCORE_IDX], gc_richness, 
-                                        ct_richness])
-            else:
-                utr3_csv_entries.append([gene_id, utr_end - utr_start,
-                                        utr[SCORE_IDX], gc_richness, 
-                                        ct_richness])
+    def to_gff(self):
+        """Returns a GFF representation of UTR"""
+        short_type = '5utr' if self.entry_type == 'five_prime_UTR' else '3utr'
 
-class PrimaryTransSplicingSite(PrimarySite):
-    def __init__(self, gene, chr_id):
-        """Creates a new PrimaryTransSplicingSite instance"""
-        super().__init__(gene, chr_id)
+        # Description
+        gene_desc = self.gene.qualifiers['description'][0]
+        desc = 'ID=%s_%s;Name=%s;description=%s' % (self.gene.id, short_type,
+                                                    self.gene.id, gene_desc)
 
-        # 5'UTR
-        entry_type = 'five_prime_UTR'
+        # GFF parts
+        strand = '+' if self.strand == 1 else '-'
 
-        # Positive strand
+        return [self.chr_id, 'El-Sayed', self.entry_type, self.start + 1, 
+                self.end, self.score, strand, '.', desc]
+
+    def to_csv(self):
+        """Returns a CSV representation of UTR"""
+        # TODO: look into edge case where SL site appears to be directly
+        # adjacenct to the CDS (ex: TcCLB.509233.50)
+        if self.end - self.start == 0:
+            return
+
+        # Get GC- and CT-richness
+        gc_richness = round((self.seq.count('G') + self.seq.count('C')) /
+                            len(self.seq), 3)
+        ct_richness = round((self.seq.count('C') + self.seq.count('T')) /
+                            len(self.seq), 3)
+
+        return [self.gene.id, self.end - self.start, self.score, 
+                gc_richness, ct_richness]
+
+class FivePrimeUTR(UntranslatedRegion):
+    """FivePrimeUTR class definition"""
+    def __init__(self, gene, sl_sites, primary_sl, strand, chr_id, genome_seq):
+        super().__init__(gene, sl_sites, primary_sl, strand, chr_id)
+
+        self.entry_type = 'five_prime_UTR'
+
+        # Set UTR boundaries
         if gene.strand == 1:
-            start = feature.location.end
-            end = gene.location.start
+            # Positive strand (cast to int?)
+            self.start = primary_sl.location.end
+            self.end = gene.location.start
         else:
             # Negative strand
-            start = gene.location.end
-            end = feature.location.start
+            self.start = gene.location.end
+            self.end = primary_sl.location.start
 
-class PrimaryPolyAdenylationSite(PrimarySite):
-    def __init__(self, gene, chr_id):
-        """Creates a new PrimaryPolyAdenylationSite instance"""
-        super().__init__(gene, chr_id)
+        # Get UTR sequence
+        self.seq = str(genome_seq[chr_id].seq[self.start:self.end])
+
+class ThreePrimeUTR(UntranslatedRegion):
+    """ThreePrimeUTR class definition"""
+    def __init__(self, gene, polya_sites, primary_polya, strand, chr_id, genome_seq):
+        super().__init__(gene, polya_sites, primary_polya, strand, chr_id)
 
         self.entry_type = 'three_prime_UTR'
 
-        # Positive strand
+        # Set UTR boundaries
         if gene.strand == 1:
-            start = gene.location.end
-            end = feature.location.start
+            # Positive strand
+            self.start = gene.location.end
+            self.end = primary_polya.location.start
         else:
             # Negative strand
-            start = feature.location.end
-            end = gene.location.start
+            self.start = primary_polya.location.end
+            self.end = gene.location.start
 
+        # Get UTR sequence
+        self.seq = str(genome_seq[chr_id].seq[self.start:self.end])

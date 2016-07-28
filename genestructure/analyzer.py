@@ -91,9 +91,6 @@ class GeneStructureAnalyzer(object):
         # Variables for keeping track of our position and count as we move
         # across the chromosomes in the genome
 
-        # inter-CDS regions
-        self.inter_cds_regions = []
-
         # counters
         self.total_counter = 0
         self.assigned_counter = 0
@@ -124,6 +121,28 @@ class GeneStructureAnalyzer(object):
         # plot_genome_features(genome_sequence, cds_regions, rnaseq_coverage,
         #                      plot_type)
 
+        # Get a list of GFF/CSV entries to be written to output
+        gff_entries = []
+        utr5_csv_entries = []
+        utr3_csv_entries = []
+
+        # Iterate over inter-CDS regions and generate GFF/CSV output entries
+        for region in self.inter_cds_regions:
+            # GFF entry
+            gff_entries = gff_entries + region.to_gff()
+
+            # 5'UTR CSV row
+            utr5_csv = region.get_utr5_csv()
+
+            if utr5_csv is not None:
+                utr5_csv_entries.append(utr5_csv)
+
+            # 3'UTR CSV row
+            utr3_csv = region.get_utr3_csv()
+
+            if utr3_csv is not None:
+                utr3_csv_entries.append(utr3_csv)
+
         # Write output
         logging.info("Saving results...")
 
@@ -131,8 +150,8 @@ class GeneStructureAnalyzer(object):
         if not os.path.exists(out_dir):
             os.makedirs(out_dir, mode=0o755)
 
-        # create_extended_gff(out_dir, gff, gff_entries)
-        # create_summary_csv_files(out_dir, utr5_csv_entries, utr3_csv_entries)
+        create_extended_gff(out_dir, gff, gff_entries)
+        create_summary_csv_files(out_dir, utr5_csv_entries, utr3_csv_entries)
 
     def find_utr_boundaries(self):
         """
@@ -618,11 +637,30 @@ class InterCDSRegion(object):
     def __init__(self, left_feature, right_feature):
         self.left_feature = left_feature
         self.right_feature = right_feature
+
     def to_gff(self):
         """Returns a GFF representation of the UTR boundaries"""
-        # Generate row in CSV output
-        # for utr in [self.left_feature, self.right_feature]:
-        pass
+        entries = []
+
+        for feature in [self.left_feature, self.right_feature]:
+            if feature is not None:
+                entries.append(feature.to_gff())
+
+        return entries
+
+    def get_utr5_csv(self):
+        """Returns a CSV representation of the 5'UTR, if it was detected"""
+        if (self.left_feature is not None) and (self.left_feature.entry_type == 'five_prime_UTR'):
+                return self.left_feature.to_csv()
+        elif (self.right_feature is not None) and (self.right_feature.entry_type == 'five_prime_UTR'):
+                return self.right_feature.to_csv()
+
+    def get_utr3_csv(self):
+        """Returns a CSV representation of the 3'UTR, if it was detected"""
+        if (self.left_feature is not None) and (self.left_feature.entry_type == 'three_prime_UTR'):
+                return self.left_feature.to_csv()
+        elif (self.right_feature is not None) and (self.right_feature.entry_type == 'three_prime_UTR'):
+                return self.right_feature.to_csv()
 
 class UntranslatedRegion(object):
     def __init__(self, gene, features, primary_feature, strand, chr_id):
@@ -651,8 +689,9 @@ class UntranslatedRegion(object):
         # GFF parts
         strand = '+' if self.strand == 1 else '-'
 
-        return [self.chr_id, 'El-Sayed', self.entry_type, self.start + 1, 
-                self.end, self.score, strand, '.', desc]
+        return "\t".join([self.chr_id, 'El-Sayed', self.entry_type, 
+                          str(self.start + 1), str(self.end), self.score, 
+                          strand, '.', desc])
 
     def to_csv(self):
         """Returns a CSV representation of UTR"""
@@ -667,7 +706,7 @@ class UntranslatedRegion(object):
         ct_richness = round((self.seq.count('C') + self.seq.count('T')) /
                             len(self.seq), 3)
 
-        return [self.gene.id, self.end - self.start, self.score, 
+        return [self.gene.id, self.end - self.start - 1, self.score, 
                 gc_richness, ct_richness]
 
 class FivePrimeUTR(UntranslatedRegion):

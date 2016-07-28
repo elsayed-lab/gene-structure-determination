@@ -81,6 +81,15 @@ def create_extended_gff(out_dir, gff, entries):
     This function takes an existing GFF file, e.g. a TriTrypDB genome
     annotation GFF containing entries for mRNAs, genes, etc. and adds UTR
     entries predicted in this program.
+
+    Parameters
+    ----------
+    out_dir: str
+        Location where modified GFF should be written to.
+    gff: str
+        Filepath to original GFF.
+    entries: list
+        List of strings representing single line GFF entries
     """
     # TODO: Add UTR entries as children of mRNA GFF entries
     # http://biopython.org/wiki/GFF_Parsing
@@ -94,8 +103,7 @@ def create_extended_gff(out_dir, gff, entries):
     fp = open(outfile, 'a')
 
     # Write header to output
-    writer = csv.writer(fp, delimiter='\t')
-    writer.writerows(entries)
+    fp.writelines([entry + "\n" for entry in entries])
 
     # clean up
     fp.close()

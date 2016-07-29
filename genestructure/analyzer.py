@@ -333,21 +333,25 @@ class GeneStructureAnalyzer(object):
         if max_score == 0:
             return None
 
+        # Get alternative trans-splicing and polyadenylation sites
+        alt_sl_sites = [x for x in sl_sites if x.id != sl.id]
+        alt_polya_sites = [x for x in polya_sites if x.id != polya.id]
+
         # Create InterCDSRegion instances
         if self.strand == 1:
             # positive strand (3'UTR before 5'UTR)
             return InterCDSRegion(
-                ThreePrimeUTR(self.left_gene, polya_sites, polya, self.strand,
+                ThreePrimeUTR(self.left_gene, polya, alt_polya_sites, self.strand,
                               self.chr_id, self.genome_sequence),
-                FivePrimeUTR(self.right_gene, sl_sites, sl, self.strand,
+                FivePrimeUTR(self.right_gene, sl, alt_sl_sites, self.strand,
                              self.chr_id, self.genome_sequence)
             )
         else:
             # negative strand (5'UTR before 3'UTR)
             return InterCDSRegion(
-                FivePrimeUTR(self.left_gene, sl_sites, sl, self.strand,
+                FivePrimeUTR(self.left_gene, sl, alt_sl_sites, self.strand,
                              self.chr_id, self.genome_sequence),
-                ThreePrimeUTR(self.right_gene, polya_sites, polya, self.strand,
+                ThreePrimeUTR(self.right_gene, polya, alt_polya_sites, self.strand,
                               self.chr_id, self.genome_sequence) 
             )
 
@@ -356,19 +360,21 @@ class GeneStructureAnalyzer(object):
         if self.strand == 1:
             # positive strand
             primary_sl = self.get_max_feature(sl_sites, location_preference='right')
+            alt_sl_sites = [x for x in sl_sites if x.id != primary_sl.id]
 
             return InterCDSRegion(
                 None,
-                FivePrimeUTR(self.right_gene, sl_sites, primary_sl,
+                FivePrimeUTR(self.right_gene, primary_sl, alt_sl_sites,
                              self.strand, self.chr_id, self.genome_sequence),
             )
         else:
             # negative strand
             primary_sl = self.get_max_feature(sl_sites, location_preference='left')
+            alt_sl_sites = [x for x in sl_sites if x.id != primary_sl.id]
 
             return InterCDSRegion(
-                FivePrimeUTR(self.left_gene, sl_sites, primary_sl, self.strand,
-                             self.chr_id, self.genome_sequence),
+                FivePrimeUTR(self.left_gene, primary_sl, alt_sl_sites,
+                             self.strand, self.chr_id, self.genome_sequence),
                 None
             )
 
@@ -378,9 +384,10 @@ class GeneStructureAnalyzer(object):
             # positive strand
             primary_polya = self.get_max_feature(polya_sites, 
                                                  location_preference='left')
+            alt_polya_sites = [x for x in polya_sites if x.id != primary_polya.id]
 
             return InterCDSRegion(
-                ThreePrimeUTR(self.left_gene, polya_sites, primary_polya,
+                ThreePrimeUTR(self.left_gene, primary_polya, alt_polya_sites,
                               self.strand, self.chr_id, self.genome_sequence),
                 None 
             )
@@ -388,10 +395,11 @@ class GeneStructureAnalyzer(object):
             # negative strand
             primary_polya = self.get_max_feature(polya_sites,
                                                  location_preference='right')
+            alt_polya_sites = [x for x in polya_sites if x.id != primary_polya.id]
 
             return InterCDSRegion(
                 None,
-                ThreePrimeUTR(self.right_gene, polya_sites, primary_polya,
+                ThreePrimeUTR(self.right_gene, primary_polya, alt_polya_sites,
                               self.strand, self.chr_id, self.genome_sequence)
             )
 
@@ -492,6 +500,7 @@ class GeneStructureAnalyzer(object):
             for polya_site in polya_sites:
                 # TODO: Decide how to assign features when this is the only
                 # configuration.
+                import pdb; pdb.set_trace()
 
                 #  If SL/Poly(A) are in wrong in wrong orientation,
                 #  which would lead to negative-sized intergenic
@@ -663,14 +672,14 @@ class InterCDSRegion(object):
                 return self.right_feature.to_csv()
 
 class UntranslatedRegion(object):
-    def __init__(self, gene, features, primary_feature, strand, chr_id):
+    def __init__(self, gene, primary_site, alternative_sites, strand, chr_id):
         self.gene = gene
-        self.features = features
-        self.primary_feature = primary_feature
+        self.primary_site = primary_site
+        self.alternative_sites = alternative_sites
         self.chr_id = chr_id
         self.strand = strand
 
-        self.score = primary_feature.qualifiers['score'][0]
+        self.score = primary_site.qualifiers['score'][0]
 
         self.entry_type = None
         self.start = None
@@ -706,13 +715,15 @@ class UntranslatedRegion(object):
         ct_richness = round((self.seq.count('C') + self.seq.count('T')) /
                             len(self.seq), 3)
 
-        return [self.gene.id, self.end - self.start - 1, self.score, 
+        utr_length = self.end - self.start - 1
+
+        return [self.gene.id, self.primary_site.id, utr_length, self.score, 
                 gc_richness, ct_richness]
 
 class FivePrimeUTR(UntranslatedRegion):
     """FivePrimeUTR class definition"""
-    def __init__(self, gene, sl_sites, primary_sl, strand, chr_id, genome_seq):
-        super().__init__(gene, sl_sites, primary_sl, strand, chr_id)
+    def __init__(self, gene, primary_sl, alt_sites, strand, chr_id, genome_seq):
+        super().__init__(gene, primary_sl, alt_sites, strand, chr_id)
 
         self.entry_type = 'five_prime_UTR'
 
@@ -721,18 +732,20 @@ class FivePrimeUTR(UntranslatedRegion):
             # Positive strand (cast to int?)
             self.start = primary_sl.location.end
             self.end = gene.location.start
+            self.primary_site = primary_sl.location.start
         else:
             # Negative strand
             self.start = gene.location.end
             self.end = primary_sl.location.start
+            self.primary_site = primary_sl.location.end
 
         # Get UTR sequence
         self.seq = str(genome_seq[chr_id].seq[self.start:self.end])
 
 class ThreePrimeUTR(UntranslatedRegion):
     """ThreePrimeUTR class definition"""
-    def __init__(self, gene, polya_sites, primary_polya, strand, chr_id, genome_seq):
-        super().__init__(gene, polya_sites, primary_polya, strand, chr_id)
+    def __init__(self, gene, primary_polya, alt_sites, strand, chr_id, genome_seq):
+        super().__init__(gene, primary_polya, alt_sites, strand, chr_id)
 
         self.entry_type = 'three_prime_UTR'
 
@@ -741,10 +754,13 @@ class ThreePrimeUTR(UntranslatedRegion):
             # Positive strand
             self.start = gene.location.end
             self.end = primary_polya.location.start
+            self.primary_site = primary_sl.location.end
         else:
             # Negative strand
             self.start = primary_polya.location.end
             self.end = gene.location.start
+            self.primary_site = primary_sl.location.start
 
         # Get UTR sequence
         self.seq = str(genome_seq[chr_id].seq[self.start:self.end])
+

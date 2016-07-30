@@ -14,7 +14,7 @@ from BCBio import GFF
 from .orfs import find_orfs
 from .util import max_filter
 from .plots import plot_genome_features
-from .io import build_gff_utr_entry, create_extended_gff, create_summary_csv_files, load_gff
+from .io import build_gff_utr_entry, create_extended_gff, create_summary_csv_files, load_gff, create_alt_site_csv_files
 
 class GeneStructureAnalyzer(object):
     """
@@ -126,22 +126,31 @@ class GeneStructureAnalyzer(object):
         utr5_csv_entries = []
         utr3_csv_entries = []
 
+        utr5_csv_all_sites = []
+        utr3_csv_all_sites = []
+
         # Iterate over inter-CDS regions and generate GFF/CSV output entries
         for region in self.inter_cds_regions:
             # GFF entry
             gff_entries = gff_entries + region.to_gff()
 
-            # 5'UTR CSV row
-            utr5_csv = region.get_utr5_csv()
+            # 5'UTR CSV entries
+            utr5 = region.get_utr5()
+            if utr5 is not None:
+                utr5_csv_entries.append(utr5.to_primary_utr_csv())
+                utr5_csv_all_sites = utr5_csv_all_sites + utr5.all_sites_csv()
 
-            if utr5_csv is not None:
-                utr5_csv_entries.append(utr5_csv)
+            # 3'UTR CSV entries
+            utr3 = region.get_utr3()
+            if utr3 is not None:
+                utr3_csv_entries.append(utr3.to_primary_utr_csv())
+                utr3_csv_all_sites = utr3_csv_all_sites + utr3.all_sites_csv()
 
-            # 3'UTR CSV row
-            utr3_csv = region.get_utr3_csv()
-
-            if utr3_csv is not None:
-                utr3_csv_entries.append(utr3_csv)
+        # Drop any empty entries
+        utr5_csv_entries = [x for x in utr5_csv_entries if x is not None]
+        utr3_csv_entries = [x for x in utr5_csv_entries if x is not None]
+        utr5_csv_all_sites = [x for x in utr5_csv_all_sites if x is not None]
+        utr3_csv_all_sites = [x for x in utr3_csv_all_sites if x is not None]
 
         # Write output
         logging.info("Saving results...")
@@ -152,6 +161,8 @@ class GeneStructureAnalyzer(object):
 
         create_extended_gff(out_dir, gff, gff_entries)
         create_summary_csv_files(out_dir, utr5_csv_entries, utr3_csv_entries)
+        create_alt_site_csv_files(out_dir, utr5_csv_all_sites,
+                                  utr3_csv_all_sites)
 
     def find_utr_boundaries(self):
         """
@@ -500,7 +511,6 @@ class GeneStructureAnalyzer(object):
             for polya_site in polya_sites:
                 # TODO: Decide how to assign features when this is the only
                 # configuration.
-                import pdb; pdb.set_trace()
 
                 #  If SL/Poly(A) are in wrong in wrong orientation,
                 #  which would lead to negative-sized intergenic
@@ -654,37 +664,42 @@ class InterCDSRegion(object):
         for feature in [self.left_feature, self.right_feature]:
             if feature is not None:
                 entries.append(feature.to_gff())
-
         return entries
 
-    def get_utr5_csv(self):
-        """Returns a CSV representation of the 5'UTR, if it was detected"""
+    def get_utr5(self):
+        """Returns the 5'UTR"""
         if (self.left_feature is not None) and (self.left_feature.entry_type == 'five_prime_UTR'):
-                return self.left_feature.to_csv()
+            return self.left_feature
         elif (self.right_feature is not None) and (self.right_feature.entry_type == 'five_prime_UTR'):
-                return self.right_feature.to_csv()
+            return self.right_feature
 
-    def get_utr3_csv(self):
-        """Returns a CSV representation of the 3'UTR, if it was detected"""
+    def get_utr3(self):
+        """Returns the 3'UTR"""
         if (self.left_feature is not None) and (self.left_feature.entry_type == 'three_prime_UTR'):
-                return self.left_feature.to_csv()
+            return self.left_feature
         elif (self.right_feature is not None) and (self.right_feature.entry_type == 'three_prime_UTR'):
-                return self.right_feature.to_csv()
+            return self.right_feature
 
 class UntranslatedRegion(object):
-    def __init__(self, gene, primary_site, alternative_sites, strand, chr_id):
+    def __init__(self, gene, primary_site, alternative_sites, strand, chr_id, genome_seq):
         self.gene = gene
         self.primary_site = primary_site
         self.alternative_sites = alternative_sites
         self.chr_id = chr_id
         self.strand = strand
+        self.entry_type = None
 
         self.score = primary_site.qualifiers['score'][0]
 
-        self.entry_type = None
-        self.start = None
-        self.end = None
-        self.seq = None
+        # set UTR boundaries and primary splice/polya site location
+        start, end, site_loc = self.get_site_locations(primary_site)
+
+        self.start = start
+        self.end = end
+        self.primary_site_loc = site_loc
+
+        # Get UTR sequence
+        self.seq = str(genome_seq[chr_id].seq[self.start - 1:self.end - 1])
 
     def to_gff(self):
         """Returns a GFF representation of UTR"""
@@ -699,11 +714,11 @@ class UntranslatedRegion(object):
         strand = '+' if self.strand == 1 else '-'
 
         return "\t".join([self.chr_id, 'El-Sayed', self.entry_type, 
-                          str(self.start + 1), str(self.end), self.score, 
+                          str(self.start), str(self.end), self.score, 
                           strand, '.', desc])
 
-    def to_csv(self):
-        """Returns a CSV representation of UTR"""
+    def to_primary_utr_csv(self):
+        """Returns a CSV representation of primary UTR boundaries"""
         # TODO: look into edge case where SL site appears to be directly
         # adjacenct to the CDS (ex: TcCLB.509233.50)
         if self.end - self.start == 0:
@@ -715,52 +730,78 @@ class UntranslatedRegion(object):
         ct_richness = round((self.seq.count('C') + self.seq.count('T')) /
                             len(self.seq), 3)
 
-        utr_length = self.end - self.start - 1
+        utr_length = self.end - self.start + 1
 
         return [self.gene.id, self.primary_site.id, utr_length, self.score, 
                 gc_richness, ct_richness]
 
+    def all_sites_csv(self):
+        """Returns a CSV representation of all trans-splicing /
+        polyadenylation sites detected for a given feature."""
+        csv_entries = []
+
+        # add primary site
+        utr_length = self.end - self.start + 1
+
+        # read_support
+        num_reads = self.primary_site.qualifiers['score'][0]
+
+        csv_entries.append([self.gene.id, self.primary_site.id, 'primary',
+                            num_reads, self.primary_site_loc, self.start, self.end, 
+                            utr_length])
+
+        # add secondary sites
+        for site in self.alternative_sites:
+            start, end, site_loc = self.get_site_locations(site)
+            utr_length = end - start + 1
+            num_reads = site.qualifiers['score'][0]
+
+            csv_entries.append([self.gene.id, site.id, 'alternative',
+                                num_reads, site_loc, start, end, utr_length])
+
+        return csv_entries
+
 class FivePrimeUTR(UntranslatedRegion):
     """FivePrimeUTR class definition"""
     def __init__(self, gene, primary_sl, alt_sites, strand, chr_id, genome_seq):
-        super().__init__(gene, primary_sl, alt_sites, strand, chr_id)
+        super().__init__(gene, primary_sl, alt_sites, strand, chr_id, genome_seq)
 
         self.entry_type = 'five_prime_UTR'
 
-        # Set UTR boundaries
-        if gene.strand == 1:
+    def get_site_locations(self, site):
+        """Returns the UTR start and end locations, and the feature location"""
+        if self.gene.strand == 1:
             # Positive strand (cast to int?)
-            self.start = primary_sl.location.end
-            self.end = gene.location.start
-            self.primary_site = primary_sl.location.start
+            utr_start = site.location.end + 1
+            utr_end = self.gene.location.start
+            site_loc = site.location.start
         else:
             # Negative strand
-            self.start = gene.location.end
-            self.end = primary_sl.location.start
-            self.primary_site = primary_sl.location.end
+            utr_start = self.gene.location.end + 1
+            utr_end = site.location.start
+            site_loc = site.location.end
 
-        # Get UTR sequence
-        self.seq = str(genome_seq[chr_id].seq[self.start:self.end])
+        return([utr_start, utr_end, site_loc])
 
 class ThreePrimeUTR(UntranslatedRegion):
     """ThreePrimeUTR class definition"""
     def __init__(self, gene, primary_polya, alt_sites, strand, chr_id, genome_seq):
-        super().__init__(gene, primary_polya, alt_sites, strand, chr_id)
+        super().__init__(gene, primary_polya, alt_sites, strand, chr_id, genome_seq)
 
         self.entry_type = 'three_prime_UTR'
 
-        # Set UTR boundaries
-        if gene.strand == 1:
-            # Positive strand
-            self.start = gene.location.end
-            self.end = primary_polya.location.start
-            self.primary_site = primary_sl.location.end
+    def get_site_locations(self, site):
+        """Returns the UTR start and end locations, and the feature location"""
+        if self.gene.strand == 1:
+            # Positive strand (cast to int?)
+            utr_start = self.gene.location.end + 1
+            utr_end = site.location.start 
+            site_loc = site.location.end
         else:
             # Negative strand
-            self.start = primary_polya.location.end
-            self.end = gene.location.start
-            self.primary_site = primary_sl.location.start
+            utr_start = site.location.end + 1
+            utr_end = self.gene.location.start
+            site_loc = site.location.start
 
-        # Get UTR sequence
-        self.seq = str(genome_seq[chr_id].seq[self.start:self.end])
+        return([utr_start, utr_end, site_loc])
 

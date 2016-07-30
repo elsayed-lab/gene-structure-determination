@@ -183,3 +183,23 @@ def create_summary_csv_files(out_dir, utr5_entries, utr3_entries):
         writer.writerow(field_names)
         writer.writerows(utr3_entries)
 
+def create_alt_site_csv_files(out_dir, alt_splice_sites, alt_polya_sites):
+    """Creates 5' and 3'UTR summary CSV files"""
+    utr5_outfile = os.path.join(out_dir, 'splice_sites.csv')
+    utr3_outfile = os.path.join(out_dir, 'polyadenylation_sites.csv')
+
+    field_names = ['gene', 'site', 'type', 'num_reads', 'loc', 'utr_start',
+                   'utr_end', 'utr_length']
+
+    # write 5'UTR alt splice sites
+    with  open(utr5_outfile, 'w') as fp:
+        writer = csv.writer(fp)
+        writer.writerow(field_names)
+        writer.writerows(alt_splice_sites)
+
+    # write 3'UTR alt polyadenylation sites
+    with  open(utr3_outfile, 'w') as fp:
+        writer = csv.writer(fp)
+        writer.writerow(field_names)
+        writer.writerows(alt_polya_sites)
+

@@ -14,7 +14,7 @@ from BCBio import GFF
 from .orfs import find_orfs
 from .util import max_filter
 from .plots import plot_genome_features
-from .io import build_gff_utr_entry, create_extended_gff, create_summary_csv_files, load_gff, create_alt_site_csv_files
+from .io import build_gff_utr_entry, create_extended_gff, create_summary_csv_files, load_gff, create_alt_site_csv_files, create_polypyrimidine_tract_csv
 
 class GeneStructureAnalyzer(object):
     """
@@ -40,7 +40,7 @@ class GeneStructureAnalyzer(object):
     of chromosomes, or in transcript switch sites (TSSs).
     """
     def __init__(self, fasta, gff, coverage, sl_gff, polya_gff,
-                 min_protein_length, outdir):
+                 min_protein_length, polypyrimidine_window, outdir):
         """Creates a new GeneStructureAnalyzer instance
 
         Arguments
@@ -57,10 +57,13 @@ class GeneStructureAnalyzer(object):
             filepath to GFF containing predicted Poly(A) sites
         min_protein_length: int
             Minimum length in amino acids to allow for novel ORFs
+        poly_pyrimidine_window: int
+            Window size to scan for polypyrimidine tracts 
         outdir: str
             Location to save outputs to
         """
         self.min_protein_length = min_protein_length
+        self.polypyrimidine_window = polypyrimidine_window
         self.outdir = outdir
 
         # Setup loggers
@@ -123,11 +126,14 @@ class GeneStructureAnalyzer(object):
 
         # Get a list of GFF/CSV entries to be written to output
         gff_entries = []
+
         utr5_csv_entries = []
         utr3_csv_entries = []
 
         utr5_csv_all_sites = []
         utr3_csv_all_sites = []
+
+        polypyrimidine_tract_entries = []
 
         # Iterate over inter-CDS regions and generate GFF/CSV output entries
         for region in self.inter_cds_regions:
@@ -146,9 +152,14 @@ class GeneStructureAnalyzer(object):
                 utr3_csv_entries.append(utr3.to_primary_utr_csv())
                 utr3_csv_all_sites = utr3_csv_all_sites + utr3.all_sites_csv()
 
+            # Polypyrimidine tract entries
+            if region.polypyrimidine_tract is not None:
+                row = [utr5.primary_site.id] + [str(x) for x in region.polypyrimidine_tract]
+                polypyrimidine_tract_entries.append(row)
+
         # Drop any empty entries
         utr5_csv_entries = [x for x in utr5_csv_entries if x is not None]
-        utr3_csv_entries = [x for x in utr5_csv_entries if x is not None]
+        utr3_csv_entries = [x for x in utr3_csv_entries if x is not None]
         utr5_csv_all_sites = [x for x in utr5_csv_all_sites if x is not None]
         utr3_csv_all_sites = [x for x in utr3_csv_all_sites if x is not None]
 
@@ -163,6 +174,7 @@ class GeneStructureAnalyzer(object):
         create_summary_csv_files(out_dir, utr5_csv_entries, utr3_csv_entries)
         create_alt_site_csv_files(out_dir, utr5_csv_all_sites,
                                   utr3_csv_all_sites)
+        create_polypyrimidine_tract_csv(out_dir, polypyrimidine_tract_entries)
 
     def find_utr_boundaries(self):
         """
@@ -355,7 +367,8 @@ class GeneStructureAnalyzer(object):
                 ThreePrimeUTR(self.left_gene, polya, alt_polya_sites, self.strand,
                               self.chr_id, self.genome_sequence),
                 FivePrimeUTR(self.right_gene, sl, alt_sl_sites, self.strand,
-                             self.chr_id, self.genome_sequence)
+                             self.chr_id, self.genome_sequence),
+                self.chr_id, self.genome_sequence, self.polypyrimidine_window
             )
         else:
             # negative strand (5'UTR before 3'UTR)
@@ -363,7 +376,8 @@ class GeneStructureAnalyzer(object):
                 FivePrimeUTR(self.left_gene, sl, alt_sl_sites, self.strand,
                              self.chr_id, self.genome_sequence),
                 ThreePrimeUTR(self.right_gene, polya, alt_polya_sites, self.strand,
-                              self.chr_id, self.genome_sequence) 
+                              self.chr_id, self.genome_sequence),
+                self.chr_id, self.genome_sequence, self.polypyrimidine_window
             )
 
     def get_sl_only_inter_cds(self, sl_sites):
@@ -377,6 +391,7 @@ class GeneStructureAnalyzer(object):
                 None,
                 FivePrimeUTR(self.right_gene, primary_sl, alt_sl_sites,
                              self.strand, self.chr_id, self.genome_sequence),
+                self.chr_id, self.genome_sequence, self.polypyrimidine_window
             )
         else:
             # negative strand
@@ -386,7 +401,8 @@ class GeneStructureAnalyzer(object):
             return InterCDSRegion(
                 FivePrimeUTR(self.left_gene, primary_sl, alt_sl_sites,
                              self.strand, self.chr_id, self.genome_sequence),
-                None
+                None,
+                self.chr_id, self.genome_sequence, self.polypyrimidine_window
             )
 
     def get_polya_only_inter_cds(self, polya_sites):
@@ -400,7 +416,8 @@ class GeneStructureAnalyzer(object):
             return InterCDSRegion(
                 ThreePrimeUTR(self.left_gene, primary_polya, alt_polya_sites,
                               self.strand, self.chr_id, self.genome_sequence),
-                None 
+                None,
+                self.chr_id, self.genome_sequence, self.polypyrimidine_window
             )
         else:
             # negative strand
@@ -411,7 +428,8 @@ class GeneStructureAnalyzer(object):
             return InterCDSRegion(
                 None,
                 ThreePrimeUTR(self.right_gene, primary_polya, alt_polya_sites,
-                              self.strand, self.chr_id, self.genome_sequence)
+                              self.strand, self.chr_id, self.genome_sequence),
+                self.chr_id, self.genome_sequence, self.polypyrimidine_window
             )
 
 
@@ -653,9 +671,22 @@ class GeneStructureAnalyzer(object):
 
 class InterCDSRegion(object):
     """InterCDSRegion class definition"""
-    def __init__(self, left_feature, right_feature):
+    def __init__(self, left_feature, right_feature, chr_id, genome_seq,
+                 polypyrimidine_window_size):
         self.left_feature = left_feature
         self.right_feature = right_feature
+
+        self.intergenic_seq = None
+        self.polypyrimidine_tract = None
+
+        # Get intergenic sequence and detect polypyrimidine tract
+        if left_feature is not None and right_feature is not None:
+            start = left_feature.end - 1
+            end = right_feature.start - 1
+            self.intergenic_seq = str(genome_seq[chr_id].seq[start:end])
+
+            # detect polypyrimidine tract in region
+            self.detect_polypyrimidine_tract(polypyrimidine_window_size)
 
     def to_gff(self):
         """Returns a GFF representation of the UTR boundaries"""
@@ -679,6 +710,38 @@ class InterCDSRegion(object):
             return self.left_feature
         elif (self.right_feature is not None) and (self.right_feature.entry_type == 'three_prime_UTR'):
             return self.right_feature
+
+    def detect_polypyrimidine_tract(self, window_size):
+        """Detects the longest upstream polypyrimidine tract for a 5'UTR"""
+        # limit search window to specified size
+        search_seq = self.intergenic_seq
+        offset = 0
+
+        if window_size < len(search_seq):
+            if self.left_feature.strand == 1:
+                # positive strand (right-side of intergenic region)
+                offset = len(search_seq) - window_size
+                search_seq = search_seq[-window_size:]
+            else:
+                # negative strand (left-side of intergenic region)
+                search_seq = search_seq[:window_size]
+
+        # split string by stretches of 3 or more purine and return longest match
+        seq = max(re.split('[AGN]{3,}', search_seq), key=len)
+
+        # For very short intergenic regions, there may be no tracts detected
+        if seq == '':
+            self.polypyrimidine_tract = None
+            return
+
+        # get coordinates of match
+        m = re.search(seq, search_seq)
+
+        start =  self.left_feature.end + m.start() - 1 + offset
+        end =  self.left_feature.end + m.end() - 1 + offset
+
+        # store as a tuple with the start loc, end loc, and sequence
+        self.polypyrimidine_tract = (start, end, seq)
 
 class UntranslatedRegion(object):
     def __init__(self, gene, primary_site, alternative_sites, strand, chr_id, genome_seq):

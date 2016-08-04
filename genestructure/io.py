@@ -27,6 +27,9 @@ def parse_args():
     parser.add_argument('-t', '--plot-type', default='discrete',
                         help=('Type of colormap to use when generating '
                               'coverage plots. [discrete|continuous]'))
+    parser.add_argument('-w', '--polypyrimidine-window', type=int, default=250,
+                        help=('Size of window upstream of trans-splicing site'
+                              'to scan for polypyrimidine tracts (default:250)'))
     parser.add_argument('outdir', help='Location to save results to',
                         metavar='OUTDIR')
 
@@ -172,20 +175,20 @@ def create_summary_csv_files(out_dir, utr5_entries, utr3_entries):
     field_names = ['gene', 'primary_site', 'length', 'num_reads', 'gc', 'ct']
 
     # write 5'UTR summary statistics
-    with  open(utr5_outfile, 'w') as fp:
+    with open(utr5_outfile, 'w') as fp:
         writer = csv.writer(fp)
         writer.writerow(field_names)
         writer.writerows(utr5_entries)
 
     # write 3'UTR summary statistics
-    with  open(utr3_outfile, 'w') as fp:
+    with open(utr3_outfile, 'w') as fp:
         writer = csv.writer(fp)
         writer.writerow(field_names)
         writer.writerows(utr3_entries)
 
 def create_alt_site_csv_files(out_dir, alt_splice_sites, alt_polya_sites):
     """Creates 5' and 3'UTR summary CSV files"""
-    utr5_outfile = os.path.join(out_dir, 'splice_sites.csv')
+    utr5_outfile = os.path.join(out_dir, 'trans_splice_sites.csv')
     utr3_outfile = os.path.join(out_dir, 'polyadenylation_sites.csv')
 
     field_names = ['gene', 'site', 'type', 'num_reads', 'loc', 'utr_start',
@@ -202,4 +205,16 @@ def create_alt_site_csv_files(out_dir, alt_splice_sites, alt_polya_sites):
         writer = csv.writer(fp)
         writer.writerow(field_names)
         writer.writerows(alt_polya_sites)
+
+
+def create_polypyrimidine_tract_csv(out_dir, entries):
+    """Creates 5' and 3'UTR summary CSV files"""
+    outfile = os.path.join(out_dir, 'polypyrimidine_tracts.csv')
+
+    field_names = ['primary_sl', 'start', 'end', 'seq']
+
+    with  open(outfile, 'w') as fp:
+        writer = csv.writer(fp)
+        writer.writerow(field_names)
+        writer.writerows(entries)
 

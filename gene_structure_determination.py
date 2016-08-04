@@ -39,7 +39,9 @@ def main():
     analyzer = GeneStructureAnalyzer(args['fasta'], args['gff'],
                                      args['coverage'], args['sl_gff'],
                                      args['polya_gff'],
-                                     args['min_protein_length'], args['outdir'])
+                                     args['min_protein_length'],
+                                     args['polypyrimidine_window'],
+                                     args['outdir'])
 
 if __name__ == "__main__":
     main()

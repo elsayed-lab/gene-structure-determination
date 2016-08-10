@@ -208,10 +208,10 @@ def create_alt_site_csv_files(out_dir, alt_splice_sites, alt_polya_sites):
 
 
 def create_polypyrimidine_tract_csv(out_dir, entries):
-    """Creates 5' and 3'UTR summary CSV files"""
+    """Creates Polypyrimidine tract CSV output file"""
     outfile = os.path.join(out_dir, 'polypyrimidine_tracts.csv')
 
-    field_names = ['primary_sl', 'start', 'end', 'seq']
+    field_names = ['primary_sl', 'start', 'end', 'sl_dist', 'polya_dist', 'seq']
 
     with  open(outfile, 'w') as fp:
         writer = csv.writer(fp)

@@ -154,8 +154,7 @@ class GeneStructureAnalyzer(object):
 
             # Polypyrimidine tract entries
             if region.polypyrimidine_tract is not None:
-                row = [utr5.primary_site.id] + [str(x) for x in region.polypyrimidine_tract]
-                polypyrimidine_tract_entries.append(row)
+                polypyrimidine_tract_entries.append(region.polypyrimidine_tract.to_csv())
 
         # Drop any empty entries
         utr5_csv_entries = [x for x in utr5_csv_entries if x is not None]
@@ -681,7 +680,7 @@ class InterCDSRegion(object):
 
         # Get intergenic sequence and detect polypyrimidine tract
         if left_feature is not None and right_feature is not None:
-            start = left_feature.end - 1
+            start = left_feature.end
             end = right_feature.start - 1
             self.intergenic_seq = str(genome_seq[chr_id].seq[start:end])
 
@@ -692,7 +691,8 @@ class InterCDSRegion(object):
         """Returns a GFF representation of the UTR boundaries"""
         entries = []
 
-        for feature in [self.left_feature, self.right_feature]:
+        for feature in [self.left_feature, self.right_feature, 
+                        self.polypyrimidine_tract]:
             if feature is not None:
                 entries.append(feature.to_gff())
         return entries
@@ -729,6 +729,9 @@ class InterCDSRegion(object):
         # split string by stretches of 3 or more purine and return longest match
         seq = max(re.split('[AGN]{3,}', search_seq), key=len)
 
+        # strip any purines or N's at edge of match
+        seq = seq.strip('AGN')
+
         # For very short intergenic regions, there may be no tracts detected
         if seq == '':
             self.polypyrimidine_tract = None
@@ -740,8 +743,19 @@ class InterCDSRegion(object):
         start =  self.left_feature.end + m.start() - 1 + offset
         end =  self.left_feature.end + m.end() - 1 + offset
 
+        # distance to SL site
+        utr5 = self.get_utr5()
+        sl_dist = min(abs(start - utr5.primary_site_loc), 
+                      abs(end - utr5.primary_site_loc))
+
+        # distance to Poly(A) site
+        utr3 = self.get_utr3()
+        polya_dist = min(abs(start - utr3.primary_site_loc), 
+                         abs(end - utr3.primary_site_loc))
+
         # store as a tuple with the start loc, end loc, and sequence
-        self.polypyrimidine_tract = (start, end, seq)
+        self.polypyrimidine_tract = PolypyrimidineTract(utr5, start, end,
+                                                        sl_dist, polya_dist, seq)
 
 class UntranslatedRegion(object):
     def __init__(self, gene, primary_site, alternative_sites, strand, chr_id, genome_seq):
@@ -766,13 +780,11 @@ class UntranslatedRegion(object):
 
     def to_gff(self):
         """Returns a GFF representation of UTR"""
-        short_type = '5utr' if self.entry_type == 'five_prime_UTR' else '3utr'
-
         # Description
-        gene_desc = self.gene.qualifiers['description'][0]
-        desc = 'ID=%s_%s;Name=%s;description=%s' % (self.gene.id, short_type,
-                                                    self.gene.id, gene_desc)
-
+        desc = 'ID=%s;Name=%s;description=%s;Parent=%s' % (self.id,
+                                                           self.entry_type_short, 
+                                                           self.entry_type_short, 
+                                                           self.gene.id)
         # GFF parts
         strand = '+' if self.strand == 1 else '-'
 
@@ -830,6 +842,10 @@ class FivePrimeUTR(UntranslatedRegion):
         super().__init__(gene, primary_sl, alt_sites, strand, chr_id, genome_seq)
 
         self.entry_type = 'five_prime_UTR'
+        self.entry_type_short = '5utr'
+
+        # Set ID
+        self.id = "%s_%s" % (self.entry_type_short, self.gene.id)
 
     def get_site_locations(self, site):
         """Returns the UTR start and end locations, and the feature location"""
@@ -852,6 +868,10 @@ class ThreePrimeUTR(UntranslatedRegion):
         super().__init__(gene, primary_polya, alt_sites, strand, chr_id, genome_seq)
 
         self.entry_type = 'three_prime_UTR'
+        self.entry_type_short = '3utr'
+
+        # Set ID
+        self.id = "%s_%s" % (self.entry_type_short, self.gene.id)
 
     def get_site_locations(self, site):
         """Returns the UTR start and end locations, and the feature location"""
@@ -867,4 +887,33 @@ class ThreePrimeUTR(UntranslatedRegion):
             site_loc = site.location.start
 
         return([utr_start, utr_end, site_loc])
+
+class PolypyrimidineTract(object):
+    """PolypyrimidineTract class definition"""
+    def __init__(self, utr5, start, end, sl_dist, polya_dist, seq):
+        """Creates a new PolypyrimidineTract instance"""
+        self.utr5 = utr5
+        self.start = start
+        self.end = end
+        self.sl_dist = sl_dist
+        self.polya_dist = polya_dist
+        self.seq = seq
+
+    def to_csv(self):
+        """Returns a list representation of the tract ready for csv output"""
+        return [self.utr5.primary_site.id, str(self.start), str(self.end),
+                str(self.sl_dist), str(self.polya_dist), str(self.seq)]
+
+    def to_gff(self):
+        """Returns a GFF representation of polypyrimidine tract"""
+        # Description
+        desc_template = 'ID=polypyrimidine_tract_%s;Name=polypyrimidine_tract;description=polypyrimidine_tract;size=%d;Parent=%s'
+        desc = desc_template % (self.utr5.gene.id, self.end - self.start, self.utr5.id)
+
+        # GFF parts
+        strand = '+' if self.utr5.strand == 1 else '-'
+
+        return "\t".join([self.utr5.chr_id, 'El-Sayed', 'polypyrimidine_tract',
+                          str(self.start), str(self.end), '.',
+                          strand, '.', desc])
 

@@ -24,6 +24,9 @@ def parse_args():
     parser.add_argument('-l', '--min-protein-length', type=int, default=30,
                         help=('Minimum size in amino acids allowed for '
                                 'novel ORFs. (default=30)'))
+    parser.add_argument('-m', '--max-intercds-length', type=int, default=30000,
+                        help=('Maximum distance between to genes for them to'
+                              'considered adjacent (default=30000)'))
     parser.add_argument('-t', '--plot-type', default='discrete',
                         help=('Type of colormap to use when generating '
                               'coverage plots. [discrete|continuous]'))
@@ -206,6 +209,17 @@ def create_alt_site_csv_files(out_dir, alt_splice_sites, alt_polya_sites):
         writer.writerow(field_names)
         writer.writerows(alt_polya_sites)
 
+def create_intercds_csv(out_dir, entries):
+    """Creates inter-cds CSV output file"""
+    outfile = os.path.join(out_dir, 'intercds_regions.csv')
+
+    field_names = ['left_gene', 'right_gene', 'strand', 'inter_cds_length', 
+                   'intergenic_length', 'intergenic_seq']
+
+    with  open(outfile, 'w') as fp:
+        writer = csv.writer(fp)
+        writer.writerow(field_names)
+        writer.writerows(entries)
 
 def create_polypyrimidine_tract_csv(out_dir, entries):
     """Creates Polypyrimidine tract CSV output file"""

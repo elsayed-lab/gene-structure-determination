@@ -40,6 +40,7 @@ def main():
                                      args['coverage'], args['sl_gff'],
                                      args['polya_gff'],
                                      args['min_protein_length'],
+                                     args['max_intercds_length'],
                                      args['polypyrimidine_window'],
                                      args['outdir'])
 

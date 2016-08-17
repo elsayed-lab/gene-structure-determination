@@ -14,7 +14,7 @@ from BCBio import GFF
 from .orfs import find_orfs
 from .util import max_filter
 from .plots import plot_genome_features
-from .io import build_gff_utr_entry, create_extended_gff, create_summary_csv_files, load_gff, create_alt_site_csv_files, create_polypyrimidine_tract_csv
+from .io import build_gff_utr_entry, create_extended_gff, create_summary_csv_files, load_gff, create_alt_site_csv_files, create_polypyrimidine_tract_csv, create_intercds_csv
 
 class GeneStructureAnalyzer(object):
     """
@@ -40,7 +40,8 @@ class GeneStructureAnalyzer(object):
     of chromosomes, or in transcript switch sites (TSSs).
     """
     def __init__(self, fasta, gff, coverage, sl_gff, polya_gff,
-                 min_protein_length, polypyrimidine_window, outdir):
+                 min_protein_length, max_intercds_length,
+                 polypyrimidine_window, outdir):
         """Creates a new GeneStructureAnalyzer instance
 
         Arguments
@@ -57,12 +58,15 @@ class GeneStructureAnalyzer(object):
             filepath to GFF containing predicted Poly(A) sites
         min_protein_length: int
             Minimum length in amino acids to allow for novel ORFs
+        max_intercds_length: int
+            Maximum distance between two genes considered to be adjacent.
         poly_pyrimidine_window: int
             Window size to scan for polypyrimidine tracts 
         outdir: str
             Location to save outputs to
         """
         self.min_protein_length = min_protein_length
+        self.max_intercds_length = max_intercds_length
         self.polypyrimidine_window = polypyrimidine_window
         self.outdir = outdir
 
@@ -127,6 +131,8 @@ class GeneStructureAnalyzer(object):
         # Get a list of GFF/CSV entries to be written to output
         gff_entries = []
 
+        intercds_csv_entries = []
+
         utr5_csv_entries = []
         utr3_csv_entries = []
 
@@ -152,6 +158,10 @@ class GeneStructureAnalyzer(object):
                 utr3_csv_entries.append(utr3.to_primary_utr_csv())
                 utr3_csv_all_sites = utr3_csv_all_sites + utr3.all_sites_csv()
 
+            # Inter-CDS CSV entry
+            if utr5 is not None and utr3 is not None:
+                intercds_csv_entries.append(region.to_csv())
+
             # Polypyrimidine tract entries
             if region.polypyrimidine_tract is not None:
                 polypyrimidine_tract_entries.append(region.polypyrimidine_tract.to_csv())
@@ -170,6 +180,7 @@ class GeneStructureAnalyzer(object):
             os.makedirs(out_dir, mode=0o755)
 
         create_extended_gff(out_dir, gff, gff_entries)
+        create_intercds_csv(out_dir, intercds_csv_entries)
         create_summary_csv_files(out_dir, utr5_csv_entries, utr3_csv_entries)
         create_alt_site_csv_files(out_dir, utr5_csv_all_sites,
                                   utr3_csv_all_sites)
@@ -254,6 +265,12 @@ class GeneStructureAnalyzer(object):
         # For example: TcCLB TcChr22-2 179,000:180,000
         if self.end <= self.start:
             self.next("[SKIPPING] %s: Nested genes" % self.gene_ids)
+            return
+
+        # Skip very large inter-CDS regions (usually these correspond to
+        # inter-PTU regions for PTUs on the same strand)
+        if self.end - self.start > self.max_intercds_length:
+            self.next("[SKIPPING] %s: region > 30,000nt wide." % self.gene_ids)
             return
 
         # Get sequence record for the range
@@ -696,6 +713,15 @@ class InterCDSRegion(object):
             if feature is not None:
                 entries.append(feature.to_gff())
         return entries
+
+    def to_csv(self):
+        """Returns a CSV representation of the inter-CDS region"""
+        intercds_len = self.right_feature.end - self.left_feature.start + 1
+        intergenic_len = self.right_feature.start - self.left_feature.end - 1
+
+        return [self.left_feature.gene.id, self.right_feature.gene.id,
+                str(self.left_feature.gene.strand), str(intercds_len), 
+                str(intergenic_len), str(self.intergenic_seq)]
 
     def get_utr5(self):
         """Returns the 5'UTR"""

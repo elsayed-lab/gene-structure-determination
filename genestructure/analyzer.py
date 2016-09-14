@@ -244,7 +244,6 @@ class GeneStructureAnalyzer(object):
 
                 # Determine location for the region up to start of the gene
                 self.end = int(right_gene.location.start)
-
                 self.total_counter = self.total_counter + 1
 
                 # Update gene range description (used for logging)
@@ -261,7 +260,7 @@ class GeneStructureAnalyzer(object):
 
     def process_inter_cds_region(self):
         """Analyzes a single inter-CDS region"""
-        # Skip over snoRNAs, etc. that are nested inside of other genes
+        # Skip over rare snoRNAs, etc. that are nested inside of other genes
         # For example: TcCLB TcChr22-2 179,000:180,000
         if self.end <= self.start:
             self.next("[SKIPPING] %s: Nested genes" % self.gene_ids)
@@ -285,15 +284,21 @@ class GeneStructureAnalyzer(object):
             self.next("[SKIPPING] %s: No features detected" % self.gene_ids)
             return
 
-        # DEBUGGING
-        # if right_gene.id == 'TcCLB.508727.60':
-        #     import pdb; pdb.set_trace();
-
         # Add CDS to relevant list based on strand
         if self.strand is None:
             # Left-most gene
-            self.next("[SKIPPING] %s: Start of chromosome" % self.gene_ids)
-            return
+            if self.right_gene.location.strand == 1 and len(inter_cds_sl_sites) > 0:
+                # Positive strand with sites detected
+                logging.info("[ASSIGNED] %s: Start of chromosome" % self.gene_ids)
+                inter_cds = self.get_sl_only_inter_cds(inter_cds_sl_sites)
+            elif self.right_gene.location.strand == -1 and len(inter_cds_polya_sites) > 0:
+                # Negative strand with sites detected
+                logging.info("[ASSIGNED] %s: Start of chromosome" % self.gene_ids)
+                inter_cds = self.get_polya_only_inter_cds(inter_cds_polya_sites)
+            else:
+                # No sites detected for left-most gene
+                self.next("[SKIPPING] %s: No features detected" % self.gene_ids)
+                return
         elif self.strand != self.right_gene.location.strand:
             # Transcription Switch Sites (TSSs)
             self.next("[SKIPPING] %s: Inter-PTU region" % self.gene_ids)
@@ -834,7 +839,7 @@ class UntranslatedRegion(object):
         utr_length = self.end - self.start + 1
 
         return [self.gene.id, self.primary_site.id, utr_length, self.score, 
-                gc_richness, ct_richness]
+                gc_richness, ct_richness, self.seq]
 
     def all_sites_csv(self):
         """Returns a CSV representation of all trans-splicing /

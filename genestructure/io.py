@@ -175,7 +175,7 @@ def create_summary_csv_files(out_dir, utr5_entries, utr3_entries):
     utr5_outfile = os.path.join(out_dir, '5utr_stats.csv')
     utr3_outfile = os.path.join(out_dir, '3utr_stats.csv')
 
-    field_names = ['gene', 'primary_site', 'length', 'num_reads', 'gc', 'ct']
+    field_names = ['gene', 'primary_site', 'length', 'num_reads', 'gc', 'ct', 'seq']
 
     # write 5'UTR summary statistics
     with open(utr5_outfile, 'w') as fp:

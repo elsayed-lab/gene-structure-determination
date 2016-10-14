@@ -176,4 +176,11 @@ Diagnostic Images
 
 TODO...
 
+Output files
+------------
+
+TODO...
+
+Note: utr5_stats.csv and utr3_stats.csv include only data on _primary_ UTR
+boundaries.
 

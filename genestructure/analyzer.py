@@ -807,7 +807,7 @@ class UntranslatedRegion(object):
         self.primary_site_loc = site_loc
 
         # Get UTR sequence
-        self.seq = str(genome_seq[chr_id].seq[self.start - 1:self.end - 1])
+        self.seq = str(genome_seq[chr_id].seq[self.start - 1:self.end])
 
     def to_gff(self):
         """Returns a GFF representation of UTR"""
@@ -825,9 +825,12 @@ class UntranslatedRegion(object):
 
     def to_primary_utr_csv(self):
         """Returns a CSV representation of primary UTR boundaries"""
+        # compute utr length
+        utr_length = len(self.seq)
+
         # TODO: look into edge case where SL site appears to be directly
         # adjacenct to the CDS (ex: TcCLB.509233.50)
-        if self.end - self.start == 0:
+        if utr_length == 0:
             return
 
         # Get GC- and CT-richness
@@ -835,8 +838,6 @@ class UntranslatedRegion(object):
                             len(self.seq), 3)
         ct_richness = round((self.seq.count('C') + self.seq.count('T')) /
                             len(self.seq), 3)
-
-        utr_length = self.end - self.start + 1
 
         return [self.gene.id, self.primary_site.id, utr_length, self.score, 
                 gc_richness, ct_richness, self.seq]
@@ -846,8 +847,8 @@ class UntranslatedRegion(object):
         polyadenylation sites detected for a given feature."""
         csv_entries = []
 
-        # add primary site
-        utr_length = self.end - self.start + 1
+        # compute utr length
+        utr_length = len(self.seq)
 
         # read_support
         num_reads = self.primary_site.qualifiers['score'][0]

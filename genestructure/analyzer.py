@@ -574,9 +574,30 @@ class GeneStructureAnalyzer(object):
         """Returns all annotation features which fall within the specified range"""
         features = []
 
+        # retrieve all features that fall in the range of interest
         for feature in annotations.features:
+            # skip chromosome entries
+            if feature.type == 'chromosome':
+                continue
+
+            # check to see if SL/Poly(A) site falls in inter-CDS range
             if feature.location.start > self.start and feature.location.end < self.end:
-                features.append(feature)
+                # get putative UTR sequence corresponding to feature and check
+                # to make sure there are not a large number of N's
+                if ((feature.type == 'trans_splice_site' and feature.strand == 1) or
+                    (feature.type == 'polyA_site' and feature.strand == -1)):
+                    # SL / negative strand Poly(A)
+                    seq = self.genome_sequence[self.chr_id][feature.location.start + 1:self.end + 1]
+                else:
+                    # Poly(A) / negative strand SL
+                    seq = self.genome_sequence[self.chr_id][self.start:feature.location.start]
+
+                # Determine number of ambiguous sequence positions
+                num_ambiguous = seq.seq.count('N')
+
+                # Include all sites with less than 100 N's
+                if num_ambiguous < 100:
+                    features.append(feature)
 
         return features
 

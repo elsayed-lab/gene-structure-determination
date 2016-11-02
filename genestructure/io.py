@@ -30,7 +30,7 @@ def parse_args():
     parser.add_argument('-t', '--plot-type', default='discrete',
                         help=('Type of colormap to use when generating '
                               'coverage plots. [discrete|continuous]'))
-    parser.add_argument('-w', '--polypyrimidine-window', type=int, default=250,
+    parser.add_argument('-w', '--polypyrimidine-window', type=int, default=400,
                         help=('Size of window upstream of trans-splicing site'
                               'to scan for polypyrimidine tracts (default:250)'))
     parser.add_argument('outdir', help='Location to save results to',

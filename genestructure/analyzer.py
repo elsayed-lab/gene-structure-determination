@@ -502,13 +502,13 @@ class GeneStructureAnalyzer(object):
             orf_coverage = sum(coverage[orf_start:orf_end])
 
             # compute score for region to the left of ORF
-            lhs_sl_sites    = [sl for sl in sl_sites if sl.location.start < orf_start]
-            lhs_polya_sites = [polya for polya in polya_sites if polya.location.start < orf_start]
+            lhs_sl_sites    = [sl for sl in sl_sites if sl.location.end < orf_start]
+            lhs_polya_sites = [polya for polya in polya_sites if polya.location.end < orf_start]
             lhs = self.select_optimal_features(lhs_sl_sites, lhs_polya_sites)
 
             # compute score for region to the right of ORF
-            rhs_sl_sites    = [sl for sl in sl_sites if sl.location.start > orf_end]
-            rhs_polya_sites = [polya for polya in polya_sites if polya.location.start > orf_end]
+            rhs_sl_sites    = [sl for sl in sl_sites if sl.location.end > orf_end]
+            rhs_polya_sites = [polya for polya in polya_sites if polya.location.end > orf_end]
             rhs = self.select_optimal_features(rhs_sl_sites, rhs_polya_sites)
 
             # total number of features assigned for configuration
@@ -554,8 +554,8 @@ class GeneStructureAnalyzer(object):
                 #  If SL/Poly(A) are in wrong in wrong orientation,
                 #  which would lead to negative-sized intergenic
                 #  regions, skip.
-                if ((self.strand ==  1 and polya_site.location.start >= sl_site.location.start) or
-                    (self.strand == -1 and polya_site.location.start <= sl_site.location.start)):
+                if ((self.strand ==  1 and polya_site.location.end >= sl_site.location.end) or
+                    (self.strand == -1 and polya_site.location.end <= sl_site.location.end)):
                     continue
 
                 # compute read support for features
@@ -581,16 +581,16 @@ class GeneStructureAnalyzer(object):
                 continue
 
             # check to see if SL/Poly(A) site falls in inter-CDS range
-            if feature.location.start > self.start and feature.location.end < self.end:
+            if feature.location.end > self.start and feature.location.end < self.end:
                 # get putative UTR sequence corresponding to feature and check
                 # to make sure there are not a large number of N's
                 if ((feature.type == 'trans_splice_site' and feature.strand == 1) or
                     (feature.type == 'polyA_site' and feature.strand == -1)):
                     # SL / negative strand Poly(A)
-                    seq = self.genome_sequence[self.chr_id][feature.location.start + 1:self.end + 1]
+                    seq = self.genome_sequence[self.chr_id][feature.location.end:self.end + 1]
                 else:
                     # Poly(A) / negative strand SL
-                    seq = self.genome_sequence[self.chr_id][self.start:feature.location.start]
+                    seq = self.genome_sequence[self.chr_id][self.start:feature.location.end]
 
                 # Determine number of ambiguous sequence positions
                 num_ambiguous = seq.seq.count('N')
@@ -620,7 +620,7 @@ class GeneStructureAnalyzer(object):
             return max_sites[0]
 
         # Otherwise find the site closest to the edge specified
-        positions = np.array([site.location.start for site in features])
+        positions = np.array([site.location.end for site in features])
 
         if location_preference == 'left':
             return np.array(features)[positions == min(positions)][0]
@@ -649,7 +649,7 @@ class GeneStructureAnalyzer(object):
         arr = np.zeros(end - start)
 
         for feature in features:
-            arr[feature.location.start - start] = int(feature.qualifiers.get('score')[0])
+            arr[feature.location.end - start] = int(feature.qualifiers.get('score')[0])
 
         return arr
 
@@ -693,7 +693,7 @@ class GeneStructureAnalyzer(object):
         # Get the indices of coverage peaks
         indices = np.arange(len(feature_arr))[feature_arr != 0] + self.start
 
-        return [x for x in features if x.location.start in indices]
+        return [x for x in features if x.location.end in indices]
     
     def setup_logger(self):
         """Sets up global logger for gene structure analysis"""
@@ -796,9 +796,10 @@ class InterCDSRegion(object):
         end =  self.left_feature.end + m.end() - 1 + offset
 
         # distance to SL site
+        # add one to account second base in AG dinucleotide
         utr5 = self.get_utr5()
         sl_dist = min(abs(start - utr5.primary_site_loc), 
-                      abs(end - utr5.primary_site_loc))
+                      abs(end - utr5.primary_site_loc)) + 1
 
         # distance to Poly(A) site
         utr3 = self.get_utr3()
@@ -901,17 +902,27 @@ class FivePrimeUTR(UntranslatedRegion):
         self.id = "%s_%s" % (self.entry_type_short, self.gene.id)
 
     def get_site_locations(self, site):
-        """Returns the UTR start and end locations, and the feature location"""
+        """
+        Returns the UTR start and end locations, and the feature location.
+       
+        Note
+        ----
+        When parsing GFF files with BCBio, the single locations used for
+        start and end coordinates in the GFF files get converted to a start
+        position that is one less than what is in the GFF, and and end position
+        equal to the GFF value.  Thus we always want to use the "site.end"
+        position when determining where the splice site is actually located.
+        """
+        site_loc = site.location.end
+
         if self.gene.strand == 1:
-            # Positive strand (cast to int?)
-            utr_start = site.location.end + 1
+            # Positive strand
+            utr_start = site_loc + 1
             utr_end = self.gene.location.start
-            site_loc = site.location.start
         else:
             # Negative strand
             utr_start = self.gene.location.end + 1
-            utr_end = site.location.start
-            site_loc = site.location.end
+            utr_end = site_loc - 1
 
         return([utr_start, utr_end, site_loc])
 
@@ -928,16 +939,16 @@ class ThreePrimeUTR(UntranslatedRegion):
 
     def get_site_locations(self, site):
         """Returns the UTR start and end locations, and the feature location"""
+        site_loc = site.location.end
+
         if self.gene.strand == 1:
-            # Positive strand (cast to int?)
+            # Positive strand
             utr_start = self.gene.location.end + 1
-            utr_end = site.location.start 
-            site_loc = site.location.end
+            utr_end = site_loc
         else:
             # Negative strand
-            utr_start = site.location.end + 1
+            utr_start = site_loc + 1
             utr_end = self.gene.location.start
-            site_loc = site.location.start
 
         return([utr_start, utr_end, site_loc])
 

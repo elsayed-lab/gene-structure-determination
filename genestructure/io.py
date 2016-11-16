@@ -32,7 +32,7 @@ def parse_args():
                               'coverage plots. [discrete|continuous]'))
     parser.add_argument('-w', '--polypyrimidine-window', type=int, default=400,
                         help=('Size of window upstream of trans-splicing site'
-                              'to scan for polypyrimidine tracts (default:250)'))
+                              'to scan for polypyrimidine tracts (default:400)'))
     parser.add_argument('outdir', help='Location to save results to',
                         metavar='OUTDIR')
 
@@ -139,7 +139,7 @@ def build_gff_utr_entry(feature, gene, chr_id):
         # Positive strand
         if gene.strand == 1:
             start = gene.location.end
-            end = feature.location.start
+            end = feature.location.end
         else:
             # Negative strand
             start = feature.location.end
@@ -155,7 +155,7 @@ def build_gff_utr_entry(feature, gene, chr_id):
         else:
             # Negative strand
             start = gene.location.end
-            end = feature.location.start
+            end = feature.location.end
 
     # Description
     # ID=TcCLB.511911.98_5utr;Name=TcCLB.511911.98;description=hypothetical+protein,+conserved

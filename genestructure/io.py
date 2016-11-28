@@ -194,8 +194,8 @@ def create_alt_site_csv_files(out_dir, alt_splice_sites, alt_polya_sites):
     utr5_outfile = os.path.join(out_dir, 'trans_splice_sites.csv')
     utr3_outfile = os.path.join(out_dir, 'polyadenylation_sites.csv')
 
-    field_names = ['gene', 'site', 'type', 'num_reads', 'loc', 'utr_start',
-                   'utr_end', 'utr_length']
+    field_names = ['gene', 'site', 'type', 'num_reads', 'chr_coordinate', 
+                   'utr_start', 'utr_end', 'utr_length']
 
     # write 5'UTR alt splice sites
     with  open(utr5_outfile, 'w') as fp:
